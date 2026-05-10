@@ -28,7 +28,7 @@ class ChatCompletionRequest(BaseModel):
 
 def get_auth_service() -> AuthService:
     settings = get_settings()
-    return AuthService(master_key=settings.master_key)
+    return AuthService(root_key=settings.root_key)
 
 
 def get_router() -> Router:

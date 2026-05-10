@@ -29,11 +29,11 @@ class TestAuth:
         )
         assert response.status_code == 401
 
-    def test_master_key(self, client):
+    def test_root_key(self, client):
         response = client.post(
             "/v1/chat/completions",
             json={"model": "gpt-4", "messages": [{"role": "user", "content": "Hello"}]},
-            headers={"Authorization": "Bearer sk-master-change-me"},
+            headers={"Authorization": "Bearer sk-root-change-me"},
         )
         # 400 because no provider is configured in tests
         assert response.status_code == 400

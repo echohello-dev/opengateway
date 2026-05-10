@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     workers: int = Field(default=1)
 
     # Auth
-    master_key: str = Field(default="sk-master-change-me")
+    root_key: str = Field(default="sk-root-change-me")
     require_auth: bool = Field(default=True)
 
     # Database

@@ -43,9 +43,9 @@ class VirtualKey:
 class AuthService:
     """Handles virtual key authentication with Redis caching."""
 
-    def __init__(self, master_key: str, redis_client: redis.Redis | None = None) -> None:
-        self.master_key = master_key
-        self.master_key_hash = self._hash_key(master_key)
+    def __init__(self, root_key: str, redis_client: redis.Redis | None = None) -> None:
+        self.root_key = root_key
+        self.root_key_hash = self._hash_key(root_key)
         self._redis = redis_client
         self._local_cache: dict[str, VirtualKey] = {}
 
@@ -68,14 +68,14 @@ class AuthService:
 
         key_hash = self._hash_key(token)
 
-        # Check master key first
-        if key_hash == self.master_key_hash:
+        # Check root key first
+        if key_hash == self.root_key_hash:
             return VirtualKey(
                 key_hash=key_hash,
-                key_id="master",
+                key_id="root",
                 team_id=None,
                 org_id=None,
-                name="master",
+                name="root",
                 is_admin=True,
                 models=None,
                 max_budget=None,

@@ -22,7 +22,7 @@ Set via environment variables or create a `.env` file:
 ```bash
 DATABASE_URL=postgresql://postgres:postgres@localhost/opengateway
 REDIS_URL=redis://localhost:6379/0
-MASTER_KEY=sk-master-change-me
+ROOT_KEY=sk-root-change-me
 ```
 
 ## License
