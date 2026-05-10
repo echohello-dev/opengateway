@@ -6,7 +6,7 @@ An open-source AI gateway. All features free — SSO, audit logs, guardrails, ad
 
 ```bash
 # Install dependencies
-pip install -e ".[dev]"
+uv pip install -e ".[dev]"
 
 # Run the gateway
 opengateway

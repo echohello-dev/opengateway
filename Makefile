@@ -1,10 +1,10 @@
 .PHONY: install dev test lint format run docker-build docker-run clean
 
 install:
-	pip install -e "."
+	uv pip install -e "."
 
 dev:
-	pip install -e ".[dev]"
+	uv pip install -e ".[dev]"
 
 test:
 	pytest -v
