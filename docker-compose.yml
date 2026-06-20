@@ -1,0 +1,45 @@
+version: "3.8"
+
+services:
+  gateway:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/opengateway
+      - REDIS_URL=redis://redis:6379/0
+      - MASTER_KEY=${MASTER_KEY:-sk-master-change-me}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - LOG_LEVEL=INFO
+    depends_on:
+      - db
+      - redis
+    networks:
+      - gateway
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=opengateway
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - gateway
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - gateway
+
+volumes:
+  postgres_data:
+
+networks:
+  gateway:
+    driver: bridge
