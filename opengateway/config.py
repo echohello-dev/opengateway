@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import os
 from functools import lru_cache
 
-from pydantic import Field, PostgresDsn, RedisDsn
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -31,15 +30,17 @@ class Settings(BaseSettings):
     require_auth: bool = Field(default=True)
 
     # Database
-    database_url: PostgresDsn = Field(
+    database_url: str = Field(
         default="postgresql://postgres:postgres@localhost:5432/opengateway"
     )
     database_pool_size: int = Field(default=10)
 
     # Redis
-    redis_url: RedisDsn = Field(default="redis://localhost:6379/0")
+    redis_url: str = Field(default="redis://localhost:6379/0")
 
     # Providers
+    openai_api_key: str | None = Field(default=None)
+    anthropic_api_key: str | None = Field(default=None)
     default_timeout: int = Field(default=60)
     max_retries: int = Field(default=2)
     retry_backoff: float = Field(default=1.0)

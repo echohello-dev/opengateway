@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any, AsyncGenerator
+from collections.abc import AsyncGenerator
+from typing import Any
 
 import structlog
 
@@ -58,9 +59,7 @@ class OpenAIProvider(BaseProvider):
             finish_reason=choice.get("finish_reason"),
         )
 
-    async def chat_stream(
-        self, request: ChatRequest
-    ) -> AsyncGenerator[ChatResponse, None]:
+    async def chat_stream(self, request: ChatRequest) -> AsyncGenerator[ChatResponse, None]:
         """Send a streaming chat completion request to OpenAI."""
         payload: dict[str, Any] = {
             "model": request.model,

@@ -1,0 +1,36 @@
+[workspace]
+name = "opengateway"
+channels = ["conda-forge", "https://conda.modular.com/max-nightly"]
+preview = ["pixi-build"]
+
+[dependencies]
+python = ">=3.11,<3.14"
+
+[pypi-dependencies]
+fastapi = ">=0.115,<0.120"
+uvicorn = { version = ">=0.34,<0.35", extras = ["standard"] }
+pydantic = ">=2.10,<2.11"
+pydantic-settings = ">=2.7,<2.8"
+httpx = { version = ">=0.28,<0.29", extras = ["http2"] }
+structlog = ">=25.1,<26.0"
+redis = ">=5.2,<6.0"
+asyncpg = ">=0.30,<0.31"
+prometheus-client = ">=0.21,<0.22"
+python-dotenv = ">=1.0,<2.0"
+pytest = ">=8.3,<9.0"
+pytest-asyncio = ">=0.25,<0.26"
+ruff = ">=0.9,<1.0"
+mypy = ">=1.14,<2.0"
+
+[feature.mojo.dependencies]
+flare = { git = "https://github.com/ehsanmok/flare.git", tag = "v0.8.0" }
+
+[feature.mojo.tasks]
+format = "mojo format ."
+test = "mojo test ."
+build = "mojo build main.mojo -O3 -D ASSERT=none"
+serve = "mojo run main.mojo"
+
+[environments]
+mojo = ["mojo"]
+default = []
