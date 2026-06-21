@@ -32,6 +32,6 @@ class Router:
 
     def reset(self) -> None:
         """Close all provider connections."""
-        for provider in self._providers.values():
+        for _provider in self._providers.values():
             pass  # Providers handle their own lifecycle
         self._providers.clear()

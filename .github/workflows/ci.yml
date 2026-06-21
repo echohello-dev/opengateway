@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Python (${{ matrix.os }}, ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@5e38ec66c4af68f9ecb131498d484f52194e84e3 # v6.0.0
+
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: uv sync --all-extras --dev
+
+      - name: Lint (ruff)
+        run: uv run ruff check opengateway/ tests/
+
+      - name: Format check (ruff format)
+        run: uv run ruff format --check opengateway/ tests/
+
+      - name: Type check (mypy)
+        run: uv run mypy opengateway/
+
+      - name: Test
+        run: uv run pytest -v --tb=short
+
+  mojo:
+    name: Mojo (Ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install pixi
+        run: |
+          curl -fsSL https://pixi.sh/install.sh | sh
+          echo "$HOME/.pixi/bin" >> "$GITHUB_PATH"
+
+      - name: Cache pixi environment
+        uses: actions/cache@v4.2.0
+        with:
+          path: |
+            .pixi
+            ~/.cache/pixi
+          key: ${{ runner.os }}-pixi-${{ hashFiles('pixi.toml', 'pixi.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pixi-
+
+      - name: Install dependencies
+        run: pixi install
+
+      - name: Format check (mojo)
+        working-directory: opengateway/mojo
+        run: pixi run -e mojo mojo format --check .
+
+      - name: Build (compile only)
+        working-directory: opengateway/mojo
+        run: pixi run -e mojo mojo build main.mojo
+
+      - name: Test
+        working-directory: opengateway/mojo
+        run: pixi run -e mojo mojo run test_router.mojo

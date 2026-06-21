@@ -1,16 +1,16 @@
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
+from typing import Any
+
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
+from pydantic import BaseModel, ConfigDict
 
 from opengateway.auth import AuthService, VirtualKey
 from opengateway.config import get_settings
 from opengateway.providers.base import ChatRequest
-from opengateway.providers.openai import OpenAIProvider
 from opengateway.router import Router
-
-from pydantic import BaseModel, ConfigDict
-from typing import Any
 
 
 class ChatCompletionRequest(BaseModel):
@@ -25,6 +25,7 @@ class ChatCompletionRequest(BaseModel):
 
 
 # --- Dependencies ---
+
 
 def get_auth_service() -> AuthService:
     settings = get_settings()
@@ -62,7 +63,7 @@ async def chat_completions(
     request: Request,
     virtual_key: VirtualKey = Depends(get_virtual_key),
     router: Router = Depends(get_router),
-):
+) -> Response:
     if not virtual_key.has_model_access(body.model):
         raise HTTPException(status_code=403, detail="Model not allowed for this key")
 
@@ -80,11 +81,14 @@ async def chat_completions(
         max_tokens=body.max_tokens,
         top_p=body.top_p,
         stream=body.stream,
-        extra=body.model_dump(exclude={"model", "messages", "temperature", "max_tokens", "top_p", "stream"}),
+        extra=body.model_dump(
+            exclude={"model", "messages", "temperature", "max_tokens", "top_p", "stream"}
+        ),
     )
 
     if body.stream:
-        async def stream_generator():
+
+        async def stream_generator() -> AsyncGenerator[str, None]:
             async for chunk in provider.chat_stream(chat_req):
                 yield f"data: {chunk.model_dump_json()}\n\n"
             yield "data: [DONE]\n\n"
@@ -116,6 +120,7 @@ async def chat_completions(
 def cli() -> None:
     """CLI entry point for `opengateway` command."""
     import uvicorn
+
     settings = get_settings()
     uvicorn.run(
         "opengateway.main:app",
