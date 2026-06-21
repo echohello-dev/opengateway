@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/echohello-dev/opengateway/compare/v0.1.0...v0.1.1) (2026-06-21)
+
+
+### Bug Fixes
+
+* **ci:** add id-token: write for PyPI trusted publishing ([#14](https://github.com/echohello-dev/opengateway/issues/14)) ([06493b2](https://github.com/echohello-dev/opengateway/commit/06493b227c8c18c7e6b1bb76ff1d2460454f6ffb))
+
 ## 0.1.0 (2026-06-21)
 
 
