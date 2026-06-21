@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - id: release
-        uses: googleapis/release-please-action@5b8b3a9b7e6c7e4d3a2f1c0b9a8e7d6c5b4a3f2e # v4.2.0
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           release-type: python
@@ -31,7 +31,7 @@ jobs:
 
       - name: Publish to PyPI (on release)
         if: steps.release.outputs.release_created == 'true'
-        uses: pypa/gh-action-pypi-publish@67339c736fd9354cd4f8cb0b744f2b82a74b5c20 # v1.12.4
+        uses: pypa/gh-action-pypi-publish@4bb033805d9e19112d8c697528791ff53f6c2f74 # v1.9.0
         with:
           packages-dir: dist/
           skip-existing: true
