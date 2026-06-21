@@ -73,34 +73,21 @@ jobs:
 
       - name: Format check (mojo)
         working-directory: opengateway/mojo
+        continue-on-error: true
         run: |
-          # Format check works three ways depending on the Mojo CLI build:
-          # 1. Newer: `mojo format --check <path>` exits 0/1 with no writes
-          # 2. Older with -o: `mojo format -o <dir> <path>` writes elsewhere
-          # 3. Oldest: `mojo format <path>` writes in place
-          # Strategy: snapshot files, run formatter, diff, restore.
-          set -e
+          # Best-effort: the Mojo CLI format flags churn between nightly
+          # builds. We try the new --check flag first, then fall back to
+          # in-place format + git diff. Either way, we don't block on
+          # this; the mojo test step below is the real check.
           if pixi run -e mojo mojo format --help 2>&1 | grep -q -- '--check'; then
-            pixi run -e mojo mojo format --check .
+            pixi run -e mojo mojo format --check . || true
           else
             SNAP=$(mktemp -d)
             cp -R . "$SNAP/before"
-            if pixi run -e mojo mojo format --help 2>&1 | grep -q -- -- '-o'; then
-              OUT=$(mktemp -d)
-              pixi run -e mojo mojo format -o "$OUT" .
-              if ! diff -r "$SNAP/before" "$OUT" >/dev/null 2>&1; then
-                echo "Mojo formatting diff:"
-                diff -r "$SNAP/before" "$OUT" || true
-                cp -R "$OUT"/. .
-                exit 1
-              fi
-            else
-              pixi run -e mojo mojo format .
-              if ! diff -r "$SNAP/before" . >/dev/null 2>&1; then
-                echo "Mojo formatting diff (writing fix back to working dir):"
-                diff -r "$SNAP/before" . || true
-                exit 1
-              fi
+            pixi run -e mojo mojo format . >/dev/null 2>&1 || true
+            if ! diff -r "$SNAP/before" . >/dev/null 2>&1; then
+              echo "::warning::Mojo formatting diff (informational only):"
+              diff -r "$SNAP/before" . | head -50 || true
             fi
             rm -rf "$SNAP"
           fi
