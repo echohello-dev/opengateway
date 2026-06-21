@@ -73,7 +73,21 @@ jobs:
 
       - name: Format check (mojo)
         working-directory: opengateway/mojo
-        run: pixi run -e mojo mojo format --check .
+        run: |
+          if pixi run -e mojo mojo format --help 2>&1 | grep -q -- '--check'; then
+            pixi run -e mojo mojo format --check .
+          else
+            # Older Mojo: mojo format is write-only, so write to a temp
+            # location and diff. If anything differs, fail.
+            TMP=$(mktemp -d)
+            pixi run -e mojo mojo format -o "$TMP" .
+            if ! diff -r . "$TMP" >/dev/null 2>&1; then
+              echo "Mojo formatting diff:"
+              diff -r . "$TMP" || true
+              exit 1
+            fi
+            rm -rf "$TMP"
+          fi
 
       - name: Build (compile only)
         working-directory: opengateway/mojo
