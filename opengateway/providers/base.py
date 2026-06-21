@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import json
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
-from typing import Any, AsyncGenerator
+from typing import Any
 
 import httpx
 import structlog
@@ -33,6 +34,17 @@ class ChatResponse:
     usage: dict[str, int]
     finish_reason: str | None = None
 
+    def model_dump_json(self) -> str:
+        return json.dumps(
+            {
+                "id": self.id,
+                "model": self.model,
+                "content": self.content,
+                "usage": self.usage,
+                "finish_reason": self.finish_reason,
+            }
+        )
+
 
 class BaseProvider:
     """Base class for LLM provider adapters."""
@@ -50,6 +62,7 @@ class BaseProvider:
         self, request: ChatRequest
     ) -> AsyncGenerator[ChatResponse, None]:
         raise NotImplementedError
+        yield  # type: ignore[unreachable]  # pragma: no cover - makes this an async generator
 
     async def close(self) -> None:
         await self._client.aclose()

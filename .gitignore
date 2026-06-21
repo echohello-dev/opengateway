@@ -149,3 +149,20 @@ cython_debug/
 
 # Temporary files
 .tmp/
+
+# pixi
+.pixi/
+pixi.lock
+
+# Mojo build artifacts
+*.mojopkg/
+__mojopkg__/
+.mojo/
+build/
+
+# Distribution
+dist/
+dist-mojo/
+*.whl
+*.tar.gz
+
