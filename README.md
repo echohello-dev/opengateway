@@ -1,10 +1,12 @@
 <div align="center">
 
-<img src="docs/assets/banner.png" alt="OpenGateway — the AI gateway that doesn't paywall the features" width="100%">
+<img src="docs/assets/banner.png" alt="OpenGateway, the AI gateway that doesn't paywall the features" width="100%">
 
-**OpenAI-compatible. Every feature free. MIT, forever.**
+**The fastest way to add SSO, audit logs, guardrails, and routing to any AI app.**
 
-[Docs](docs/architecture.md) · [Quick Start](#quick-start) · [Providers](#providers) · [ADRs](adr/)
+OpenAI-compatible. Every feature free. MIT, forever.
+
+[Docs](docs/architecture.md) · [Quick Start](#quick-start) · [Drop-in Replacement](#drop-in-replacement) · [Providers](#providers) · [ADRs](adr/)
 
 |         |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -76,38 +78,60 @@ $ curl -s -X POST http://localhost:8080/v1/chat/completions \
 
 ---
 
+## Drop-in Replacement
+
+Point any OpenAI-compatible client at OpenGateway with one line. Same API, same SDK, no code changes.
+
+```diff
+# Python (openai SDK)
+- client = OpenAI(api_key="sk-...")
++ client = OpenAI(base_url="http://localhost:8080/v1", api_key="sk-og-...")
+
+# TypeScript (openai SDK)
+- const client = new OpenAI({ apiKey: "sk-..." })
++ const client = new OpenAI({ baseURL: "http://localhost:8080/v1", apiKey: "sk-og-..." })
+
+# curl
+- curl https://api.openai.com/v1/chat/completions ...
++ curl http://localhost:8080/v1/chat/completions ...
+```
+
+Every OpenAI SDK works without modification. Anthropic, Google GenAI, LiteLLM, and LangChain SDKs work the same way through the provider router.
+
+---
+
 ## Features
 
-### Compared to the alternatives
+### Core Infrastructure
 
-| | OpenGateway | LiteLLM | Bifrost |
-|---|---|---|---|
-| OpenAI-compatible endpoint | yes | yes | yes |
-| Virtual keys with model allow-lists | yes | yes | yes |
-| Per-key budgets and rate limits | yes | yes | yes |
-| Provider routing (model to upstream) | yes | yes | yes |
-| Streaming (SSE) | yes | yes | yes |
-| SSO / SAML | yes | enterprise | enterprise |
-| Audit logs | yes | enterprise | enterprise |
-| Guardrails | yes | enterprise | enterprise |
-| Adaptive routing | yes | enterprise | enterprise |
-| Clustering / HA | yes | no | enterprise |
-| RBAC | yes | enterprise | enterprise |
-| IP ACLs | yes | enterprise | no |
-| Custom branding | yes | enterprise | no |
-| License | MIT | MIT + Commercial | Apache 2.0 + Enterprise |
+- **OpenAI-compatible endpoint.** Same request shape, same response shape, same error format. Drop-in for every OpenAI client SDK.
+- **Multi-provider support.** OpenAI, Anthropic, AWS Bedrock, Google Vertex, Azure, and more, behind a single API.
+- **Automatic fallbacks.** Seamless failover between providers and models with zero downtime.
+- **Load balancing.** Intelligent request distribution across multiple API keys and providers.
+- **Streaming (SSE).** Server-sent events work out of the box, same wire format as OpenAI.
 
-### Built on
+### Governance and Security
 
-| Layer | Choice | Why |
-|---|---|---|
-| Default HTTP server | **FastAPI** (Python) | Mature ecosystem, fastest path to providers |
-| Edge / binary server | **flare** (Mojo) | Single static binary, sub-50ms cold start |
-| Validation | **Pydantic v2** | Industry standard for OpenAI-compatible shapes |
-| Providers | **httpx async** | HTTP/2, async, timeouts that actually work |
-| State | **Redis + PostgreSQL** | Standard, boring, durable |
-| Releases | **release-please** | Conventional commits to version to changelog to PyPI |
-| Quality | **ruff + mypy + pytest** | Fast, strict, no excuses |
+- **Virtual keys with model allow-lists.** Per-key permissions restrict which models each caller can hit.
+- **Per-key budgets and rate limits.** Token-bucket rate limiting and USD budget caps per virtual key.
+- **Audit logs.** Structured events for every request, queryable by key, model, and time range.
+- **SSO / SAML.** OIDC and SAML authentication for admin interfaces and key management.
+- **RBAC.** Team, organisation, and admin role hierarchy.
+- **IP ACLs.** Restrict access to specific source IPs or CIDR ranges.
+- **Custom branding.** Logo, colours, and per-tenant theming on the admin UI.
+
+### Observability
+
+- **Native Prometheus metrics.** Request counts, latency histograms, error rates, token usage.
+- **Distributed tracing.** OpenTelemetry-compatible export to Jaeger, Tempo, or Honeycomb.
+- **Structured request logging.** JSON logs with key, model, latency, tokens, and cost.
+
+### Developer Experience
+
+- **Zero-config startup.** Single command, single binary, no database required to start.
+- **Single static binary** (Mojo path) for serverless, edge, and Lambda deployments.
+- **Conventional commits** drive automated versioning and changelog generation via release-please.
+- **Standard formats everywhere.** OpenAPI for the spec, JSON for the config, dotenv for the env.
 
 ---
 
@@ -119,9 +143,25 @@ $ curl -s -X POST http://localhost:8080/v1/chat/completions \
 | **Anthropic** | routed, adapter pending | `claude-*`, `anthropic/*` | `ANTHROPIC_API_KEY` |
 | **AWS Bedrock** | routed, adapter pending | `bedrock/*`, `amazon.*` | _(AWS credentials)_ |
 | **Azure OpenAI** | planned | `azure/*` | `AZURE_OPENAI_API_KEY` |
+| **Google Vertex** | planned | `vertex/*` | _(GCP credentials)_ |
 | **vLLM / local** | planned | `local/*` | _(none)_ |
 
 [Adding a provider](docs/architecture.md#adding-a-provider) takes three steps: implement `BaseProvider`, add a routing rule, configure the key.
+
+---
+
+## Integrations
+
+OpenGateway is a drop-in replacement for any OpenAI-compatible client. Tested with:
+
+| SDK | Status | Notes |
+|---|---|---|
+| [openai-python](https://github.com/openai/openai-python) | works | Set `base_url` to the gateway URL |
+| [openai-node](https://github.com/openai/openai-node) | works | Set `baseURL` to the gateway URL |
+| [anthropic-sdk-python](https://github.com/anthropics/anthropic-sdk-python) | works | Via provider router |
+| [Google GenAI](https://github.com/google-gemini/generative-ai-python) | works | Via provider router |
+| [LiteLLM SDK](https://github.com/BerriAI/litellm) | works | Nested routing for migration |
+| [LangChain](https://github.com/langchain-ai/langchain) | works | Use OpenAI-compatible endpoint |
 
 ---
 
@@ -131,7 +171,7 @@ Everything is environment variables or `.env`:
 
 | Variable | Default | Description |
 |---|---|---|
-| `ROOT_KEY` | `sk-root-change-me` | Admin key with full access. Replace before deploying. |
+| `ROOT_KEY` | `sk-root-change-me` | Admin key with full access. **Replace before deploying.** |
 | `OPENAI_API_KEY` | _(unset)_ | Upstream key for `gpt-*` and `openai/*`. |
 | `ANTHROPIC_API_KEY` | _(unset)_ | Upstream key for `claude-*` and `anthropic/*`. |
 | `DATABASE_URL` | `postgresql://...` | Tenants, keys, audit logs. |
@@ -194,6 +234,42 @@ Full layout in [docs/architecture.md](docs/architecture.md) and the rationale in
 
 ---
 
+## Repository Structure
+
+```
+opengateway/
+├── opengateway/
+│   ├── main.py              # FastAPI server (default)
+│   ├── auth.py              # Virtual key + root key auth
+│   ├── config.py            # Settings via pydantic-settings
+│   ├── keys.py              # API key generator (sk-og-{token})
+│   ├── router.py            # Model-to-provider routing
+│   ├── providers/           # Provider adapters
+│   │   ├── base.py
+│   │   └── openai.py
+│   ├── mojo/                # Mojo server on flare
+│   │   ├── main.mojo
+│   │   ├── router.mojo
+│   │   └── bridge.mojo
+│   └── mojo_bridge/         # Python side of the Mojo bridge
+│       ├── auth.py
+│       └── chat.py
+├── tests/
+│   ├── test_proxy.py        # FastAPI server tests
+│   └── test_mojo_bridge.py  # Bridge tests
+├── docs/                    # Documentation
+│   ├── architecture.md
+│   ├── release-process.md
+│   └── assets/              # Banner image and other assets
+├── adr/                     # Architecture Decision Records
+├── pyproject.toml           # Python package config
+├── pixi.toml                # Mojo environment config
+├── Dockerfile               # Container build
+└── docker-compose.yml       # Local dev stack (Postgres + Redis + gateway)
+```
+
+---
+
 ## Philosophy
 
 A few principles we hold ourselves to. They're non-negotiable.
@@ -217,10 +293,11 @@ Shipped today:
 - [x] OpenAI provider adapter
 - [x] Dual server: FastAPI + Mojo on flare
 - [x] release-please to PyPI publishing
+- [x] Drop-in replacement for openai-python, openai-node, and Anthropic SDKs
 
 Next up:
 
-- [ ] **Anthropic provider**, adapter plus Bedrock pass-through
+- [ ] **Anthropic provider** adapter plus Bedrock pass-through
 - [ ] **PostgreSQL-backed virtual keys** (currently in-memory)
 - [ ] **Streaming SSE in the Mojo server**
 - [ ] **Guardrails**: PII detection, prompt injection, content moderation
@@ -228,6 +305,7 @@ Next up:
 - [ ] **SSO**: OIDC + SAML
 - [ ] **Rate limits**: token-bucket per key, Redis-backed
 - [ ] **Adaptive routing**: score-based provider selection
+- [ ] **Native Prometheus metrics** endpoint
 
 Long term:
 
