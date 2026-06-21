@@ -1,24 +1,17 @@
 <div align="center">
 
-```
-                                    _                           
-  ___  _ __   ___ _ __   __ _  __ _| |_ _____      ____ _ _   _ 
- / _ \| '_ \ / _ \ '_ \ / _` |/ _` | __/ _ \ \ /\ / / _` | | | |
-| (_) | |_) |  __/ | | | (_| | (_| | ||  __/\ V  V / (_| | |_| |
- \___/| .__/ \___/_| |_|\__, |\__,_|\__\___/ \_/\_/ \__,_|\__, |
-      |_|               |___/                             |___/ 
-```
+<img src="docs/assets/banner.png" alt="OpenGateway — the AI gateway that doesn't paywall the features" width="100%">
 
 **OpenAI-compatible. Every feature free. MIT, forever.**
 
-[Docs](docs/architecture.md) · [Quick Start](#quick-start) · [Providers](#providers) · [Architecture](docs/architecture.md) · [ADRs](adr/)
+[Docs](docs/architecture.md) · [Quick Start](#quick-start) · [Providers](#providers) · [ADRs](adr/)
 
-[![CI](https://img.shields.io/github/actions/workflow/status/echohello-dev/opengateway/ci.yml?branch=main&label=ci&style=for-the-badge)](https://github.com/echohello-dev/opengateway/actions)
-[![release-please](https://img.shields.io/github/actions/workflow/status/echohello-dev/opengateway/release-please.yml?branch=main&label=release&style=for-the-badge)](https://github.com/echohello-dev/opengateway/actions)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg?style=for-the-badge)](LICENSE)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776ab.svg?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
-[![Mojo](https://img.shields.io/badge/mojo-🔥-f44a03.svg?style=for-the-badge)](https://www.modular.com/mojo)
-[![Stars](https://img.shields.io/github/stars/echohello-dev/opengateway?style=for-the-badge)](https://github.com/echohello-dev/opengateway/stargazers)
+|         |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| CI/CD   | [![CI](https://github.com/echohello-dev/opengateway/actions/workflows/ci.yml/badge.svg)](https://github.com/echohello-dev/opengateway/actions) [![release-please](https://github.com/echohello-dev/opengateway/actions/workflows/release-please.yml/badge.svg)](https://github.com/echohello-dev/opengateway/actions) |
+| Docs    | [![Website](https://img.shields.io/website?label=documentation&up_message=online&url=https%3A//docs.opengateway.dev)](https://docs.opengateway.dev) |
+| Package | [![License: MIT](https://img.shields.io/github/license/echohello-dev/opengateway?color=blue)](LICENSE) |
+| Meta    | [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://python.org) [![Mojo](https://img.shields.io/badge/mojo-🔥-f44a03)](https://www.modular.com/mojo) [![Stars](https://img.shields.io/github/stars/echohello-dev/opengateway)](https://github.com/echohello-dev/opengateway/stargazers) |
 
 </div>
 
