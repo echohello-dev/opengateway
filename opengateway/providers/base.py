@@ -58,9 +58,7 @@ class BaseProvider:
     async def chat(self, request: ChatRequest) -> ChatResponse:
         raise NotImplementedError
 
-    async def chat_stream(
-        self, request: ChatRequest
-    ) -> AsyncGenerator[ChatResponse, None]:
+    async def chat_stream(self, request: ChatRequest) -> AsyncGenerator[ChatResponse, None]:
         raise NotImplementedError
         yield  # type: ignore[unreachable]  # pragma: no cover - makes this an async generator
 

@@ -30,9 +30,7 @@ class Settings(BaseSettings):
     require_auth: bool = Field(default=True)
 
     # Database
-    database_url: str = Field(
-        default="postgresql://postgres:postgres@localhost:5432/opengateway"
-    )
+    database_url: str = Field(default="postgresql://postgres:postgres@localhost:5432/opengateway")
     database_pool_size: int = Field(default=10)
 
     # Redis
