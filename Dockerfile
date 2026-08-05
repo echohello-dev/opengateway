@@ -45,6 +45,14 @@ FROM python:3.12-slim AS runtime
 
 WORKDIR /app
 
+# Install the Python dependencies the bridge imports at runtime
+# (httpx / pydantic / asyncpg / redis / structlog / ...). Done before
+# the source copy so the layer caches on pyproject.toml alone.
+COPY pyproject.toml ./
+RUN pip install --no-cache-dir --only-binary=:all: \
+    fastapi "uvicorn[standard]" pydantic pydantic-settings \
+    "httpx[http2]" structlog redis asyncpg prometheus-client python-dotenv
+
 COPY --from=builder /src/opengateway /app/opengateway
 COPY --from=builder /src/opengateway-mojo /usr/local/bin/opengateway-mojo
 

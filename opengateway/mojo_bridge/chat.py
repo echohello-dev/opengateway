@@ -47,6 +47,7 @@ def chat_completion(
     _validate_request(body)
     _enforce_model_access(auth, body["model"])
     _enforce_budget(auth)
+    _enforce_rate_limit(auth)
 
     return asyncio.run(_run_completion(body, provider_module))
 
@@ -88,6 +89,23 @@ def _enforce_model_access(auth: AuthResult, model: str) -> None:
 def _enforce_budget(auth: AuthResult) -> None:
     if auth.max_budget is not None and auth.budget_used >= auth.max_budget:
         raise PermissionError("budget exceeded")
+
+
+def _enforce_rate_limit(auth: AuthResult) -> None:
+    """Per-key RPM check against the distributed limiter.
+
+    No-op when the key has no ``rpm_limit`` or no limiter is
+    configured. Fails open on Redis errors (see ratelimit.py).
+    """
+    if auth.rpm_limit is None:
+        return
+    from opengateway.mojo_bridge.ratelimit import get_limiter
+
+    limiter = get_limiter()
+    if limiter is None:
+        return
+    if not limiter.allow(auth.key_id, auth.rpm_limit):
+        raise PermissionError(f"rate limit exceeded: {auth.rpm_limit} rpm")
 
 
 def _to_chat_request(body: dict[str, Any], *, stream: bool = False) -> ChatRequest:

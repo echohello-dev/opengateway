@@ -29,12 +29,12 @@ class Settings(BaseSettings):
     root_key: str = Field(default="sk-root-change-me")
     require_auth: bool = Field(default=True)
 
-    # Database
-    database_url: str = Field(default="postgresql://postgres:postgres@localhost:5432/opengateway")
+    # Database (unset = root-key-only auth, no persistence)
+    database_url: str | None = Field(default=None)
     database_pool_size: int = Field(default=10)
 
-    # Redis
-    redis_url: str = Field(default="redis://localhost:6379/0")
+    # Redis (unset = no distributed rate limiting)
+    redis_url: str | None = Field(default=None)
 
     # Providers
     openai_api_key: str | None = Field(default=None)
@@ -50,12 +50,12 @@ class Settings(BaseSettings):
     log_level: str = Field(default="INFO")
 
     @property
-    def database_url_str(self) -> str:
-        return str(self.database_url)
+    def database_url_str(self) -> str | None:
+        return str(self.database_url) if self.database_url else None
 
     @property
-    def redis_url_str(self) -> str:
-        return str(self.redis_url)
+    def redis_url_str(self) -> str | None:
+        return str(self.redis_url) if self.redis_url else None
 
 
 @lru_cache
