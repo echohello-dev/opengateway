@@ -10,15 +10,15 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-    # The Mojo binary is the entire process; no Postgres / Redis required
-    # yet. They are wired in by ADR-001 + ADR-003 follow-up work when
-    # DB-backed virtual keys land. The service definitions below are
-    # kept commented so a single ``docker compose up`` brings the whole
-    # stack online when those changes ship.
-    #
-    # depends_on:
-    #   - db
-    #   - redis
+      # Persistence + distributed state. Unset these to run
+      # root-key-only with per-process rate limiting.
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/opengateway
+      - REDIS_URL=redis://redis:6379/0
+      # Process-level admission gate (0 = disabled).
+      - RATE_LIMIT_RPS=${RATE_LIMIT_RPS:-0}
+    depends_on:
+      - db
+      - redis
     networks:
       - gateway
     # Override the entrypoint for local dev (mount source, no rebuild):
@@ -28,22 +28,21 @@ services:
     #   environment:
     #     - PYTHONPATH=/app
 
-  # ── Optional stateful services (uncomment when ADR-001 follow-ups ship)
-  # db:
-  #   image: postgres:16-alpine
-  #   environment:
-  #     - POSTGRES_USER=postgres
-  #     - POSTGRES_PASSWORD=postgres
-  #     - POSTGRES_DB=opengateway
-  #   volumes:
-  #     - postgres_data:/var/lib/postgresql/data
-  #   networks:
-  #     - gateway
-  #
-  # redis:
-  #   image: redis:7-alpine
-  #   networks:
-  #     - gateway
+  db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=opengateway
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - gateway
+
+  redis:
+    image: redis:7-alpine
+    networks:
+      - gateway
 
 volumes:
   postgres_data:

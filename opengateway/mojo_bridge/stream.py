@@ -29,6 +29,7 @@ from opengateway.mojo_bridge.auth import authenticate_authorization
 from opengateway.mojo_bridge.chat import (
     _enforce_budget,
     _enforce_model_access,
+    _enforce_rate_limit,
     _load_provider_class,
     _resolve_provider_api_key,
     _resolve_provider_base_url,
@@ -169,6 +170,7 @@ def start_streaming_chat(
     _validate_request(body)
     _enforce_model_access(auth, body["model"])
     _enforce_budget(auth)
+    _enforce_rate_limit(auth)
 
     settings = get_settings()
     api_key = _resolve_provider_api_key(settings, body["model"])

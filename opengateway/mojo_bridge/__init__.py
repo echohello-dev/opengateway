@@ -85,9 +85,10 @@ def handle_chat_stream(
 def _map_exception(exc: Exception) -> dict[str, Any]:
     if isinstance(exc, PermissionError):
         msg = str(exc)
-        if "budget" in msg.lower():
+        lower = msg.lower()
+        if "rate limit" in lower or "budget" in lower:
             return {"status": 429, "body": _error_body("rate_limit_error", msg)}
-        if "model" in msg.lower():
+        if "model" in lower:
             return {"status": 403, "body": _error_body("permission_error", msg)}
         return {"status": 401, "body": _error_body("authentication_error", msg)}
     if isinstance(exc, ValueError):
