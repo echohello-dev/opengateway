@@ -73,6 +73,17 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pixi-
 
+      - name: Cache Mojo compile cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          # The Mojo compiler's on-disk cache (.mojo_cache under the
+          # Modular cache dir) turns the ~6 min cold compile of
+          # main.mojo against flare into an incremental rebuild.
+          path: ~/.cache/modular
+          key: ${{ runner.os }}-mojo-cache-${{ hashFiles('opengateway/mojo/**', 'pixi.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-mojo-cache-
+
       - name: Install dependencies
         run: pixi install
 
