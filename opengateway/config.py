@@ -39,6 +39,8 @@ class Settings(BaseSettings):
     # Providers
     openai_api_key: str | None = Field(default=None)
     anthropic_api_key: str | None = Field(default=None)
+    openai_base_url: str | None = Field(default=None)
+    anthropic_base_url: str | None = Field(default=None)
     default_timeout: int = Field(default=60)
     max_retries: int = Field(default=2)
     retry_backoff: float = Field(default=1.0)

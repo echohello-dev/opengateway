@@ -30,17 +30,21 @@ docker-compose-up:
 
 # ── Mojo (flare) variants ─────────────────────────────────────────────────────
 
+# The Mojo runtime dlopens libpython at startup; point it at the pixi env's
+# 3.13 (macOS .dylib / Linux .so) so `Py_NewRef` resolves.
+MOJO_PYLIB := $(firstword $(wildcard $(CURDIR)/.pixi/envs/mojo/lib/libpython3.13.dylib $(CURDIR)/.pixi/envs/mojo/lib/libpython3.13.so))
+
 mojo-install:
 	curl -fsSL https://pixi.sh/install.sh | sh
 
 mojo-test:
-	pixi run -e mojo mojo run opengateway/mojo/test_router.mojo
+	pixi run -e mojo mojo -I . opengateway/mojo/test_router.mojo
 
 mojo-build:
-	pixi run -e mojo mojo build opengateway/mojo/main.mojo -O3 -D ASSERT=none -o dist-mojo/opengateway-mojo
+	pixi run -e mojo mojo build -I . opengateway/mojo/main.mojo -O3 -D ASSERT=none -o dist-mojo/opengateway-mojo
 
 mojo-serve:
-	pixi run -e mojo mojo run opengateway/mojo/main.mojo
+	MOJO_PYTHON_LIBRARY=$(MOJO_PYLIB) PYTHONPATH=$(CURDIR) pixi run -e mojo mojo -I . opengateway/mojo/main.mojo
 
 mojo-format:
 	pixi run -e mojo mojo format opengateway/mojo/

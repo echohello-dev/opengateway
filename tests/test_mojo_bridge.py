@@ -15,6 +15,7 @@ from opengateway.mojo_bridge import (
     AuthResult,
     authenticate_authorization,
     handle_chat,
+    handle_chat_stream,
     health_check,
 )
 from opengateway.mojo_bridge.auth import _hash_key
@@ -141,6 +142,130 @@ def test_handle_chat_no_api_key_returns_502_envelope(monkeypatch: pytest.MonkeyP
     assert "upstream_error" in envelope["body"]
 
 
+# ── Streaming (handle_chat_stream) ──────────────────────────────────────────
+
+
+def _register_fake_provider(
+    chunks: list[str], module_name: str = "opengateway.providers.fake"
+) -> None:
+    """Install a stub provider module so the bridge's importlib dispatch
+    resolves a class without touching the network."""
+    import sys
+    import types
+
+    from opengateway.providers.base import BaseProvider, ChatResponse
+
+    class FakeProvider(BaseProvider):
+        def __init__(self, api_key: str, base_url: str | None = None) -> None:
+            super().__init__(api_key, base_url)
+
+        async def chat_stream(self, request: Any):
+            for text in chunks:
+                yield ChatResponse(
+                    id="chatcmpl-test",
+                    model=request.model,
+                    content=text,
+                    usage={},
+                    finish_reason=None,
+                )
+
+        async def close(self) -> None:
+            return None
+
+    module = types.ModuleType(module_name)
+    class_name = module_name.rsplit(".", 1)[-1].capitalize() + "Provider"
+    setattr(module, class_name, FakeProvider)
+    sys.modules[module_name] = module
+
+
+def _drain_stream(handle: Any) -> list[str]:
+    """Pull every frame out of a StreamHandle until EOF."""
+    frames: list[str] = []
+    for _ in range(100):
+        code, payload = handle.next_chunk(1.0)
+        if code == 2:
+            return frames
+        if payload:
+            frames.append(payload)
+    raise AssertionError("stream never reached EOF")
+
+
+def test_handle_chat_stream_missing_auth_returns_401(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ROOT_KEY", "sk-root-good")
+    envelope = handle_chat_stream(
+        body={"model": "gpt-4", "messages": [{"role": "user", "content": "hi"}]},
+        authorization=None,
+        provider_module="opengateway.providers.openai",
+    )
+    assert envelope["status"] == 401
+    assert "authentication_error" in envelope["body"]
+
+
+def test_handle_chat_stream_missing_model_returns_400(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ROOT_KEY", "sk-root-good")
+    envelope = handle_chat_stream(
+        body={"messages": [{"role": "user", "content": "hi"}]},
+        authorization="Bearer sk-root-good",
+        provider_module="opengateway.providers.openai",
+    )
+    assert envelope["status"] == 400
+    assert "invalid_request_error" in envelope["body"]
+
+
+def test_handle_chat_stream_no_api_key_returns_502(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ROOT_KEY", "sk-root-good")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    envelope = handle_chat_stream(
+        body={"model": "gpt-4", "messages": [{"role": "user", "content": "hi"}]},
+        authorization="Bearer sk-root-good",
+        provider_module="opengateway.providers.openai",
+    )
+    assert envelope["status"] == 502
+    assert "upstream_error" in envelope["body"]
+
+
+def test_handle_chat_stream_happy_path_frames(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ROOT_KEY", "sk-root-good")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    _register_fake_provider(["Hello", ", world"])
+
+    envelope = handle_chat_stream(
+        body={"model": "gpt-4", "messages": [{"role": "user", "content": "hi"}]},
+        authorization="Bearer sk-root-good",
+        provider_module="opengateway.providers.fake",
+    )
+    assert envelope["status"] == 200
+
+    frames = _drain_stream(envelope["handle"])
+    assert frames[-1] == "data: [DONE]\n\n"
+    body_frames = frames[:-1]
+    assert len(body_frames) == 2
+    assert all(f.startswith("data: ") and f.endswith("\n\n") for f in body_frames)
+    import json
+
+    first = json.loads(body_frames[0][6:])
+    assert first["content"] == "Hello"
+    assert first["model"] == "gpt-4"
+
+
+def test_handle_chat_stream_validation_runs_before_thread_starts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A 4xx validation failure must not spawn a pump thread."""
+    import threading
+
+    monkeypatch.setenv("ROOT_KEY", "sk-root-good")
+    before = {t.name for t in threading.enumerate()}
+    envelope = handle_chat_stream(
+        body={"model": "gpt-4"},
+        authorization="Bearer sk-root-good",
+        provider_module="opengateway.providers.openai",
+    )
+    assert envelope["status"] == 400
+    after = {t.name for t in threading.enumerate()}
+    assert not any(name.startswith("opengateway-sse-pump") for name in after - before)
+
+
 # ── Mojo import surface ──────────────────────────────────────────────────────
 
 
@@ -148,7 +273,13 @@ def test_mojo_bridge_exports_expected_symbols() -> None:
     """Make sure the Mojo PythonObject bridge can rely on these names."""
     import opengateway.mojo_bridge as bridge
 
-    expected = {"handle_chat", "health_check", "authenticate_authorization", "AuthResult"}
+    expected = {
+        "handle_chat",
+        "handle_chat_stream",
+        "health_check",
+        "authenticate_authorization",
+        "AuthResult",
+    }
     for name in expected:
         assert hasattr(bridge, name), f"missing export: {name}"
 

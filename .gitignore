@@ -166,3 +166,6 @@ dist-mojo/
 *.whl
 *.tar.gz
 
+# Personal research notes (not shipped with the project)
+.tmp/
+

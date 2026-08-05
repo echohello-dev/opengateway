@@ -40,16 +40,7 @@ And unlike every other Python AI gateway, OpenGateway ships a **second server on
 
 ## Quick Start
 
-### Python (default)
-
-```bash
-$ uv pip install -e ".[dev]"
-$ cp .env.example .env && $EDITOR .env   # set ROOT_KEY and OPENAI_API_KEY
-$ opengateway
-INFO:     Uvicorn running on http://0.0.0.0:8080
-```
-
-### Mojo (flare), static binary
+### Default: Mojo (flare), single static binary
 
 ```bash
 $ curl -fsSL https://pixi.sh/install.sh | sh     # one-time
@@ -58,7 +49,23 @@ $ pixi run -e mojo mojo run opengateway/mojo/main.mojo
 opengateway (mojo): listening on 0.0.0.0:8080 with 4 workers
 ```
 
-Both servers implement the same `POST /v1/chat/completions` endpoint and share the same provider adapters. Switch via deployment shape, not via code.
+Or build a ~30 MB distroless container image:
+
+```bash
+$ docker build -t opengateway:mojo .
+$ docker run --rm -p 8080:8080 --env-file .env opengateway:mojo
+```
+
+### Python (FastAPI, opt-in for local dev)
+
+```bash
+$ uv pip install -e ".[dev]"
+$ cp .env.example .env && $EDITOR .env   # set ROOT_KEY and OPENAI_API_KEY
+$ opengateway
+INFO:     Uvicorn running on http://0.0.0.0:8080
+```
+
+Both servers implement the same `POST /v1/chat/completions` endpoint and share the same provider adapters. Production ships the Mojo binary; FastAPI stays in-tree as the Python-only dev path. See `docs/architecture.md` for the full story.
 
 ### Hit it
 
@@ -224,13 +231,13 @@ API keys follow [`sk-og-{token}`](adr/001-api-key-format.md), the same prefix sh
    └────────────────────┘
 ```
 
-**FastAPI** is the default. Python ecosystem, 700+ contributors, mature, boring.
+**Mojo on flare** is the default. Single static binary, sub-50 ms cold start, ~30 MB image, no `pip install` in your container. Hosts the entire HTTP surface — routing, middleware, SSE, request-id propagation, structured logging, panic safety, graceful drain — natively.
 
-**Mojo on flare** is for when you need a single static binary at the edge: sub-50 ms cold start, ~30 MB image, no `pip install` in your container.
+**FastAPI** stays in-tree as the Python-only dev path (`uv run opengateway`). Use it for local iteration on the bridge or when you need a debugger attached to the Python stack. It is no longer the production deployment target.
 
-They share the same provider adapters, the same auth, the same config. The Mojo to PythonObject boundary is one synchronous function call (`handle_chat`) that returns an envelope dict so the Mojo handler never catches Python exceptions.
+Both servers share the same provider adapters, the same auth, the same config. The Mojo to PythonObject boundary is one synchronous function call (`bridge.handle_chat`) that returns an envelope dict so the Mojo handler never catches Python exceptions.
 
-Full layout in [docs/architecture.md](docs/architecture.md) and the rationale in [ADR-002](adr/002-mojo-api-surface.md).
+Full layout in [docs/architecture.md](docs/architecture.md); the decision to make Mojo the default lives in [ADR-003](adr/003-mojo-default.md); the original dual-server rationale is in [ADR-002](adr/002-mojo-api-surface.md).
 
 ---
 
@@ -239,24 +246,25 @@ Full layout in [docs/architecture.md](docs/architecture.md) and the rationale in
 ```
 opengateway/
 ├── opengateway/
-│   ├── main.py              # FastAPI server (default)
+│   ├── main.py              # FastAPI server (opt-in dev path)
 │   ├── auth.py              # Virtual key + root key auth
 │   ├── config.py            # Settings via pydantic-settings
 │   ├── keys.py              # API key generator (sk-og-{token})
-│   ├── router.py            # Model-to-provider routing
-│   ├── providers/           # Provider adapters
+│   ├── router.py            # Model-to-provider routing (Python)
+│   ├── providers/           # Provider adapters (called by the bridge)
 │   │   ├── base.py
 │   │   └── openai.py
-│   ├── mojo/                # Mojo server on flare
-│   │   ├── main.mojo
-│   │   ├── router.mojo
-│   │   └── bridge.mojo
+│   ├── mojo/                # Mojo server on flare — default deployment
+│   │   ├── main.mojo        # flare HTTP server + middleware stack
+│   │   ├── router.mojo      # Model -> provider module routing
+│   │   ├── test_router.mojo
+│   │   └── __init__.mojo
 │   └── mojo_bridge/         # Python side of the Mojo bridge
 │       ├── auth.py
 │       └── chat.py
 ├── tests/
-│   ├── test_proxy.py        # FastAPI server tests
-│   └── test_mojo_bridge.py  # Bridge tests
+│   ├── test_proxy.py        # FastAPI server tests (still in-tree)
+│   └── test_mojo_bridge.py  # Bridge tests + router drift guard
 ├── docs/                    # Documentation
 │   ├── architecture.md
 │   ├── release-process.md
@@ -299,7 +307,7 @@ Next up:
 
 - [ ] **Anthropic provider** adapter plus Bedrock pass-through
 - [ ] **PostgreSQL-backed virtual keys** (currently in-memory)
-- [ ] **Streaming SSE in the Mojo server**
+- [x] **Streaming SSE in the Mojo server**
 - [ ] **Guardrails**: PII detection, prompt injection, content moderation
 - [ ] **Audit log**: structured events, queryable
 - [ ] **SSO**: OIDC + SAML
