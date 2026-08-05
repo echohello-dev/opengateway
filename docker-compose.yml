@@ -1,41 +1,49 @@
-version: "3.8"
-
 services:
   gateway:
     build: .
+    image: opengateway:mojo
     ports:
       - "8080:8080"
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@db:5432/opengateway
-      - REDIS_URL=redis://redis:6379/0
-      - MASTER_KEY=${MASTER_KEY:-sk-master-change-me}
+      # Provider keys + auth — read by opengateway.mojo_bridge.
+      - ROOT_KEY=${ROOT_KEY:-sk-root-change-me}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - LOG_LEVEL=INFO
-    depends_on:
-      - db
-      - redis
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    # The Mojo binary is the entire process; no Postgres / Redis required
+    # yet. They are wired in by ADR-001 + ADR-003 follow-up work when
+    # DB-backed virtual keys land. The service definitions below are
+    # kept commented so a single ``docker compose up`` brings the whole
+    # stack online when those changes ship.
+    #
+    # depends_on:
+    #   - db
+    #   - redis
     networks:
       - gateway
+    # Override the entrypoint for local dev (mount source, no rebuild):
+    #   entrypoint: ["python", "-m", "opengateway"]
+    #   volumes:
+    #     - ./opengateway:/app/opengateway
+    #   environment:
+    #     - PYTHONPATH=/app
 
-  db:
-    image: postgres:16-alpine
-    environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=opengateway
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
-    networks:
-      - gateway
-
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    networks:
-      - gateway
+  # ── Optional stateful services (uncomment when ADR-001 follow-ups ship)
+  # db:
+  #   image: postgres:16-alpine
+  #   environment:
+  #     - POSTGRES_USER=postgres
+  #     - POSTGRES_PASSWORD=postgres
+  #     - POSTGRES_DB=opengateway
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   networks:
+  #     - gateway
+  #
+  # redis:
+  #   image: redis:7-alpine
+  #   networks:
+  #     - gateway
 
 volumes:
   postgres_data:
