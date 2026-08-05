@@ -25,6 +25,7 @@ or build a static binary for production:
         -O3 -D ASSERT=none -o dist-mojo/opengateway-mojo
 """
 from std.collections import Optional
+from std.os import getenv
 
 from flare.prelude import (
     CatchPanic,
@@ -39,6 +40,9 @@ from flare.prelude import (
 from flare.http import (
     Cancel,
     ChunkSource,
+    Handler,
+    Metrics,
+    RateLimit,
     StructuredLogger,
     stream_response,
 )
@@ -158,6 +162,45 @@ struct PythonQueueSource(ChunkSource, Copyable, Movable):
             return Optional[List[UInt8]](_string_to_bytes(frame))
 
 
+# ── App shell (/metrics interception + typed stack alias) ───────────────────
+
+
+comptime AppInner = Metrics[
+    RateLimit[StructuredLogger[Compress[RequestId[Router]]]]
+]
+
+
+struct AppShell(Copyable, Defaultable, Handler, Movable):
+    """Outermost application handler.
+
+    Intercepts ``GET /metrics`` before the middleware stack and renders
+    the ``Metrics`` registry as Prometheus text exposition. Everything
+    else delegates to the wrapped stack.
+
+    The registry is shared across worker copies (the middleware holds
+    it as a heap address), so ``/metrics`` reports process-wide
+    counters; increments are non-atomic under ``num_workers > 1``,
+    which is acceptable for counters and documented in ADR-003.
+    """
+
+    var inner: AppInner
+
+    def __init__(out self):
+        self.inner = AppInner()
+
+    def __init__(out self, var inner: AppInner):
+        self.inner = inner^
+
+    def serve(self, req: Request) raises -> Response:
+        if req.url == "/metrics":
+            var resp = ok(self.inner.render())
+            resp.headers.set(
+                "Content-Type", "text/plain; version=0.0.4; charset=utf-8"
+            )
+            return resp^
+        return self.inner.serve(req)
+
+
 # ── Routes ──────────────────────────────────────────────────────────────────
 
 
@@ -236,6 +279,17 @@ def _wants_stream(payload: PythonObject) raises -> Bool:
     return s == "True" or s == "true"
 
 
+def _env_int(name: String, default: Int) -> Int:
+    """Read an integer environment variable, falling back to ``default``."""
+    var raw = getenv(name)
+    if raw.byte_length() == 0:
+        return default
+    try:
+        return Int(raw)
+    except Exception:
+        return default
+
+
 # ── Server entry point ──────────────────────────────────────────────────────
 
 
@@ -249,6 +303,13 @@ def serve(
     Middleware ordering (outside-in):
 
     - CatchPanic: convert any raise in the inner stack to a sanitised 500.
+    - AppShell: intercept ``GET /metrics`` and render the registry;
+      everything else delegates inward.
+    - Metrics: Prometheus counters / latency histogram for every
+      request, including rate-limit 429s.
+    - RateLimit: token-bucket admission gate, tuned by
+      ``RATE_LIMIT_RPS`` / ``RATE_LIMIT_BURST`` (0 = disabled).
+      Approximately global across workers (shared atomic cell).
     - StructuredLogger: one JSON-per-line log record per response.
     - Compress: gzip / brotli content negotiation on buffered bodies.
       Streaming responses pass through untouched (``len(resp.body)``
@@ -257,20 +318,19 @@ def serve(
     - RequestId: inject / propagate ``X-Request-Id``; close to the
       router so the id propagates through every header + log line.
     - Router: the application dispatcher.
-
-    ``Metrics`` and ``RateLimit`` remain ADR-003 follow-ups: both need
-    per-process configuration (registry, bucket sizing) that is worth
-    a separate change rather than folding in here.
     """
     var router = Router()
     router.get("/health", health)
     router.post("/v1/chat/completions", chat_completions)
 
-    var stack = CatchPanic(
-        StructuredLogger(
-            Compress(RequestId(router^)),
-        )
+    var app = StructuredLogger(Compress(RequestId(router^)))
+    var limited = RateLimit(
+        app^,
+        rate_per_sec=_env_int("RATE_LIMIT_RPS", 0),
+        burst=_env_int("RATE_LIMIT_BURST", 0),
     )
+    var measured = Metrics(limited^)
+    var stack = CatchPanic(AppShell(measured^))
 
     var addr = SocketAddr.parse(host + ":" + String(port))
     var server = HttpServer.bind(addr)
