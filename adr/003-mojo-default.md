@@ -140,7 +140,7 @@ Bumping flare to v0.9.0 and rebuilding the binary against the existing `opengate
 ### Negative
 
 - **Two servers to maintain.** Routing, middleware, error mapping all exist in both `opengateway/main.py` and `opengateway/mojo/main.mojo`. Drift is a real risk; the `test_routing_rules_match_mojo_router` test in `tests/test_mojo_bridge.py` is the first explicit guard, and the Mojo router logic now lives inline in `main.mojo` (the standalone `router.mojo` was the prior separate-file shape). The drift guard covers model-name routing only; full request-shape parity is a follow-up.
-- **Streaming SSE frames carry the normalised `ChatResponse` shape**, not the raw upstream `chat.completion.chunk` wire shape. This matches the FastAPI dev server (both call `chunk.model_dump_json()`), so the two servers are consistent, but a client that pattern-matches on OpenAI's exact chunk envelope (e.g. reading `choices[0].delta.content`) will need the flattened `content` field instead. Passing raw provider chunks through untouched is a follow-up that requires reshaping `BaseProvider.chat_stream`.
+- ~~**Streaming SSE frames carry the normalised `ChatResponse` shape**~~ — resolved: frames now pass the raw upstream `chat.completion.chunk` envelope through verbatim (both servers), so the official OpenAI SDK parses them without modification.
 - **The streaming pull loop blocks the flare worker between frames.** `PythonQueueSource.next` calls `handle.next_chunk(0.5)` — a blocking `queue.get` — so a flare worker is occupied by one streaming request at a time, the same blocking profile as the non-streaming path (`asyncio.run` inside the bridge). `num_workers` must be sized for concurrent streaming load. The flare-native fix (an `AsyncChunkSource` over a real fd, per the `serve_streaming` surface) needs a Mojo async runtime or a UDS hop and is a follow-up.
 - **Maturity risk on flare.** flare is 4 months old, 4 contributors, single maintainer, ~40 stars. The Mojo runtime is in `1.0.0b2` (beta). Both are young, both have shipped their first backwards-compatible releases, both are usable in production today. The hedge against immaturity is the FastAPI dev path: if either breaks, contributors have a stable Python surface to develop against.
 - **Build-time cost.** The Mojo compile of `opengateway/mojo/main.mojo` against flare v0.9.0 takes ~6 minutes on macOS arm64 in CI cold cache. This is a one-time cost; rebuilds are incremental. But it does move the CI graph forward by 6 minutes, which is on the borderline of acceptable for a PR-check.
@@ -157,19 +157,19 @@ Each follow-up is a one-page issue. None blocks this ADR.
 
 1. ~~**`stream: true` on the Mojo server.**~~ **Shipped** with this ADR's implementation: `opengateway/mojo_bridge/stream.py` (validation + pump thread + bounded queue) and `PythonQueueSource` in `opengateway/mojo/main.mojo` (reactor-side pull). e2e-verified against `tests/mock_upstream.py`. The remaining upgrade is the flare-native `serve_streaming` / `UpstreamChunkSource` shape over a UDS (removes the per-frame blocking pull and per-worker occupancy); that refactor is tracked separately and is invisible to clients.
 
-2. ~~**Full middleware stack.**~~ **Partially shipped:** `CatchPanic → StructuredLogger → Compress → RequestId → Router` is wired in `opengateway/mojo/main.mojo`. `Metrics` remains open (needs a `MetricsRegistry` configuration decision and a `/metrics` route).
+2. ~~**Full middleware stack.**~~ **Shipped:** `CatchPanic → AppShell → Metrics → RateLimit → StructuredLogger → Compress → RequestId → Router` in `opengateway/mojo/main.mojo`. `GET /metrics` renders the Prometheus text exposition (`flare_http_requests_total`, `flare_http_request_duration_seconds` histogram, in-flight gauge, error counter). Counters are shared across workers via the middleware's heap-addressed registry; increments are non-atomic under `num_workers > 1`, so treat multi-worker metrics as approximate.
 
-3. **Rate limiting.** `RateLimit[Inner]` middleware with a token-bucket admission gate. Per-process only; for distributed rate limiting we still need Redis (which means a Mojo client or back through the bridge). Estimate: half a day for per-process.
+3. ~~**Rate limiting.**~~ **Shipped (per-process):** `RateLimit[Inner]` token bucket tuned by `RATE_LIMIT_RPS` / `RATE_LIMIT_BURST` (0 = disabled). Approximately global across workers via a shared atomic cell. Distributed rate limiting still needs Redis and stays open.
 
 4. **TLS termination.** Use `TlsAcceptor` over OpenSSL, cert reload via `acceptor.reload()`. The Dockerfile needs to ship `build/libflare_tls.so` (or link statically if that's available — needs a flare contribution). Estimate: 1 day.
 
 5. **DB-backed virtual keys.** A real Postgres driver in Mojo doesn't exist; either keep auth through the Python bridge or contribute one. The Mojo-side auth module grows a `State[AuthBridge]` extractor. Estimate: at minimum a week of focused work, plus a maintained Postgres driver.
 
-6. **HTTP/3 enablement.** `HttpServer.bind_with_http3` adds a UDP listener for h3 over QUIC. Should be a config flag, off by default until QUIC is battle-tested at scale. Estimate: 1 day once we decide to ship it.
+6. **HTTP/3 enablement.** `HttpServer.bind_with_http3` adds a UDP listener for h3 over QUIC. Requires TLS (QUIC is always encrypted), so it lands after follow-up 4. Off by default until battle-tested at scale. Estimate: 1 day once we decide to ship it.
 
 7. **CI parallelism for the Mojo build.** The 6-minute compile is acceptable but eats CI time. Pre-compile `flare + json + openai_bridge` into a `.mojoc` package in CI and pull it as a build artifact rather than recompiling from source. Estimate: 1-2 days; this is a significant CI improvement.
 
-8. **Raw chunk pass-through for streaming.** The current SSE frames carry the normalised `ChatResponse` JSON. Passing the provider's raw `chat.completion.chunk` through untouched (so clients see the exact upstream envelope) requires reshaping `BaseProvider.chat_stream` to yield raw payloads. Estimate: half a day, plus a test-matrix decision on which providers guarantee which chunk shape.
+8. **Distributed rate limiting.** The shipped `RateLimit` is per-process. A shared bucket across replicas needs Redis (a Mojo client or a bridge-side check). Pairs naturally with follow-up 5.
 
 ## Alternatives considered
 

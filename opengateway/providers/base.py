@@ -58,7 +58,15 @@ class BaseProvider:
     async def chat(self, request: ChatRequest) -> ChatResponse:
         raise NotImplementedError
 
-    async def chat_stream(self, request: ChatRequest) -> AsyncGenerator[ChatResponse, None]:
+    async def chat_stream(self, request: ChatRequest) -> AsyncGenerator[str, None]:
+        """Yield raw SSE ``data:`` payloads from the upstream, verbatim.
+
+        Providers pass the upstream's JSON chunk through untouched so
+        clients see the exact provider envelope (e.g. OpenAI's
+        ``chat.completion.chunk`` with ``choices[0].delta.content``).
+        The ``[DONE]`` sentinel is consumed by the provider; callers
+        re-emit it after the final frame.
+        """
         raise NotImplementedError
         yield  # type: ignore[unreachable]  # pragma: no cover - makes this an async generator
 

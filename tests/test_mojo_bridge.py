@@ -150,10 +150,11 @@ def _register_fake_provider(
 ) -> None:
     """Install a stub provider module so the bridge's importlib dispatch
     resolves a class without touching the network."""
+    import json
     import sys
     import types
 
-    from opengateway.providers.base import BaseProvider, ChatResponse
+    from opengateway.providers.base import BaseProvider
 
     class FakeProvider(BaseProvider):
         def __init__(self, api_key: str, base_url: str | None = None) -> None:
@@ -161,12 +162,20 @@ def _register_fake_provider(
 
         async def chat_stream(self, request: Any):
             for text in chunks:
-                yield ChatResponse(
-                    id="chatcmpl-test",
-                    model=request.model,
-                    content=text,
-                    usage={},
-                    finish_reason=None,
+                yield json.dumps(
+                    {
+                        "id": "chatcmpl-test",
+                        "object": "chat.completion.chunk",
+                        "created": 0,
+                        "model": request.model,
+                        "choices": [
+                            {
+                                "index": 0,
+                                "delta": {"content": text},
+                                "finish_reason": None,
+                            }
+                        ],
+                    }
                 )
 
         async def close(self) -> None:
@@ -243,8 +252,11 @@ def test_handle_chat_stream_happy_path_frames(monkeypatch: pytest.MonkeyPatch) -
     assert all(f.startswith("data: ") and f.endswith("\n\n") for f in body_frames)
     import json
 
+    # Raw pass-through: frames carry the upstream chat.completion.chunk
+    # envelope, so clients can read choices[0].delta.content directly.
     first = json.loads(body_frames[0][6:])
-    assert first["content"] == "Hello"
+    assert first["object"] == "chat.completion.chunk"
+    assert first["choices"][0]["delta"]["content"] == "Hello"
     assert first["model"] == "gpt-4"
 
 

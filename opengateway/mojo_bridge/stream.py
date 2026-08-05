@@ -125,7 +125,7 @@ class StreamHandle:
             async for chunk in provider.chat_stream(request):
                 if self._cancel.is_set():
                     return
-                self._offer(f"data: {chunk.model_dump_json()}\n\n")
+                self._offer(f"data: {chunk}\n\n")
             self._offer(_DONE_FRAME)
         except Exception:
             logger.exception("upstream streaming failure")

@@ -4,11 +4,7 @@ import uuid
 from collections.abc import AsyncGenerator
 from typing import Any
 
-import structlog
-
 from opengateway.providers.base import BaseProvider, ChatRequest, ChatResponse
-
-logger = structlog.get_logger()
 
 
 class OpenAIProvider(BaseProvider):
@@ -59,8 +55,13 @@ class OpenAIProvider(BaseProvider):
             finish_reason=choice.get("finish_reason"),
         )
 
-    async def chat_stream(self, request: ChatRequest) -> AsyncGenerator[ChatResponse, None]:
-        """Send a streaming chat completion request to OpenAI."""
+    async def chat_stream(self, request: ChatRequest) -> AsyncGenerator[str, None]:
+        """Send a streaming chat completion request to OpenAI.
+
+        Yields the raw ``data:`` payload of each upstream SSE frame
+        verbatim, so downstream clients see the exact
+        ``chat.completion.chunk`` envelope OpenAI emitted.
+        """
         payload: dict[str, Any] = {
             "model": request.model,
             "messages": request.messages,
@@ -86,23 +87,9 @@ class OpenAIProvider(BaseProvider):
             response.raise_for_status()
             async for line in response.aiter_lines():
                 line = line.strip()
-                if line.startswith("data: "):
-                    data_str = line[6:]
-                    if data_str == "[DONE]":
-                        break
-                    try:
-                        import json
-
-                        data = json.loads(data_str)
-                        delta = data["choices"][0].get("delta", {})
-                        content = delta.get("content", "")
-                        if content:
-                            yield ChatResponse(
-                                id=data.get("id", f"chatcmpl-{uuid.uuid4().hex[:8]}"),
-                                model=data.get("model", request.model),
-                                content=content,
-                                usage={},
-                                finish_reason=data["choices"][0].get("finish_reason"),
-                            )
-                    except json.JSONDecodeError:
-                        continue
+                if not line.startswith("data: "):
+                    continue
+                data_str = line[6:]
+                if data_str == "[DONE]":
+                    break
+                yield data_str
