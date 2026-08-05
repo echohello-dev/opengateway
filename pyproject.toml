@@ -41,6 +41,9 @@ dev = [
 ]
 
 [project.scripts]
+# The default `opengateway` script still launches the FastAPI app for
+# Python-only deployments (uv run opengateway). Production builds ship
+# the Mojo binary as the image entrypoint; see Dockerfile + ADR-003.
 opengateway = "opengateway.main:cli"
 
 [build-system]

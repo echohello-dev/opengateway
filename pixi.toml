@@ -24,13 +24,13 @@ ruff = ">=0.9,<1.0"
 mypy = ">=1.14,<2.0"
 
 [feature.mojo.dependencies]
-flare = { git = "https://github.com/ehsanmok/flare.git", tag = "v0.8.0" }
+flare = { git = "https://github.com/ehsanmok/flare.git", tag = "v0.9.0" }
 
 [feature.mojo.tasks]
-format = "mojo format ."
-test = "mojo test ."
-build = "mojo build main.mojo -O3 -D ASSERT=none"
-serve = "mojo run main.mojo"
+format = "mojo format opengateway/mojo/"
+test = "mojo test opengateway/mojo/"
+build = "mojo build opengateway/mojo/main.mojo -O3 -D ASSERT=none -o dist-mojo/opengateway-mojo"
+serve = "mojo run opengateway/mojo/main.mojo"
 
 [environments]
 mojo = ["mojo"]

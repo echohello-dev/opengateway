@@ -58,7 +58,10 @@ async def _run_completion(body: dict[str, Any], provider_module: str) -> dict[st
         raise RuntimeError(f"no API key configured for model {body['model']}")
 
     provider_cls = _load_provider_class(provider_module)
-    provider = provider_cls(api_key=api_key)
+    provider = provider_cls(
+        api_key=api_key,
+        base_url=_resolve_provider_base_url(settings, body["model"]),
+    )
     try:
         request = _to_chat_request(body)
         response = await provider.chat(request)
@@ -87,14 +90,14 @@ def _enforce_budget(auth: AuthResult) -> None:
         raise PermissionError("budget exceeded")
 
 
-def _to_chat_request(body: dict[str, Any]) -> ChatRequest:
+def _to_chat_request(body: dict[str, Any], *, stream: bool = False) -> ChatRequest:
     return ChatRequest(
         model=body["model"],
         messages=body["messages"],
         temperature=body.get("temperature"),
         max_tokens=body.get("max_tokens"),
         top_p=body.get("top_p"),
-        stream=False,
+        stream=stream,
         extra={
             k: v
             for k, v in body.items()
@@ -128,14 +131,33 @@ def _resolve_provider_api_key(settings: Any, model: str) -> str | None:
     return settings.openai_api_key or None
 
 
+def _resolve_provider_base_url(settings: Any, model: str) -> str | None:
+    """Resolve the optional provider base-URL override.
+
+    ``None`` means the provider adapter uses its compiled-in default
+    (e.g. ``https://api.openai.com/v1``). Every ``BaseProvider``
+    constructor accepts ``base_url=None`` and falls back to its own
+    default, so passing the unresolved value through is safe.
+    """
+    if model.startswith("gpt-") or model.startswith("openai/"):
+        return settings.openai_base_url or None
+    if model.startswith("claude-") or model.startswith("anthropic/"):
+        return settings.anthropic_base_url or None
+    return None
+
+
 def _load_provider_class(provider_module: str) -> Any:
+    """Load the provider class from ``provider_module``.
+
+    Scans the module for the first concrete ``BaseProvider`` subclass
+    rather than deriving a class name from the module name, so provider
+    modules are free to name their class ``OpenAIProvider`` (not
+    ``OpenaiProvider``) or anything else.
+    """
+    from opengateway.providers.base import BaseProvider
+
     module = importlib.import_module(provider_module)
-    cls = getattr(module, _provider_class_name(provider_module), None)
-    if cls is None:
-        raise RuntimeError(f"provider module {provider_module} has no provider class")
-    return cls
-
-
-def _provider_class_name(provider_module: str) -> str:
-    base = provider_module.rsplit(".", 1)[-1]
-    return base[0].upper() + base[1:] + "Provider"
+    for attr in vars(module).values():
+        if isinstance(attr, type) and issubclass(attr, BaseProvider) and attr is not BaseProvider:
+            return attr
+    raise RuntimeError(f"provider module {provider_module} has no provider class")
