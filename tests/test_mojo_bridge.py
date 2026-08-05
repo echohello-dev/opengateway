@@ -30,10 +30,19 @@ def _clear_settings_cache() -> Any:
     invalidated.
     """
     from opengateway.config import get_settings
+    from opengateway.mojo_bridge import auth as bridge_auth
+    from opengateway.mojo_bridge.db import reset_store_cache
+    from opengateway.mojo_bridge.ratelimit import reset_limiter_cache
 
     get_settings.cache_clear()
+    bridge_auth._cache.clear()
+    reset_store_cache()
+    reset_limiter_cache()
     yield
     get_settings.cache_clear()
+    bridge_auth._cache.clear()
+    reset_store_cache()
+    reset_limiter_cache()
 
 
 # ── Health check ─────────────────────────────────────────────────────────────
@@ -276,6 +285,127 @@ def test_handle_chat_stream_validation_runs_before_thread_starts(
     assert envelope["status"] == 400
     after = {t.name for t in threading.enumerate()}
     assert not any(name.startswith("opengateway-sse-pump") for name in after - before)
+
+
+# ── Virtual key store (DB-backed auth) ──────────────────────────────────────
+
+
+class _FakeStore:
+    def __init__(self, records: dict[str, Any]) -> None:
+        self._records = records
+        self.calls = 0
+
+    def lookup(self, key_hash: str) -> Any:
+        self.calls += 1
+        return self._records.get(key_hash)
+
+
+def _fake_record(**overrides: Any) -> Any:
+    from opengateway.mojo_bridge.db import VirtualKeyRecord
+
+    defaults: dict[str, Any] = {
+        "key_id": "vk_test",
+        "name": "test-key",
+        "is_admin": False,
+        "models": None,
+        "max_budget": None,
+        "budget_used": 0.0,
+        "tpm_limit": None,
+        "rpm_limit": None,
+    }
+    defaults.update(overrides)
+    return VirtualKeyRecord(**defaults)
+
+
+def test_authenticate_virtual_key_from_store(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ROOT_KEY", "sk-root-good")
+    store = _FakeStore({_hash_key("sk-og-tenant"): _fake_record(models=["gpt-4"], rpm_limit=60)})
+    monkeypatch.setattr("opengateway.mojo_bridge.db.get_store", lambda: store)
+
+    result = authenticate_authorization("Bearer sk-og-tenant")
+    assert result.key_id == "vk_test"
+    assert result.models == ["gpt-4"]
+    assert result.rpm_limit == 60
+    assert result.is_admin is False
+
+
+def test_authenticate_unknown_virtual_key_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ROOT_KEY", "sk-root-good")
+    monkeypatch.setattr("opengateway.mojo_bridge.db.get_store", lambda: _FakeStore({}))
+    with pytest.raises(PermissionError, match="invalid virtual key"):
+        authenticate_authorization("Bearer sk-og-nobody")
+
+
+def test_authenticate_virtual_key_uses_cache(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ROOT_KEY", "sk-root-good")
+    store = _FakeStore({_hash_key("sk-og-tenant"): _fake_record()})
+    monkeypatch.setattr("opengateway.mojo_bridge.db.get_store", lambda: store)
+
+    authenticate_authorization("Bearer sk-og-tenant")
+    authenticate_authorization("Bearer sk-og-tenant")
+    assert store.calls == 1
+
+
+def test_authenticate_root_key_bypasses_store(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ROOT_KEY", "sk-root-good")
+    store = _FakeStore({})
+    monkeypatch.setattr("opengateway.mojo_bridge.db.get_store", lambda: store)
+
+    result = authenticate_authorization("Bearer sk-root-good")
+    assert result.key_id == "root"
+    assert store.calls == 0
+
+
+# ── Distributed rate limiting ────────────────────────────────────────────────
+
+
+class _FakeLimiter:
+    def __init__(self, allow: bool) -> None:
+        self._allow = allow
+        self.calls: list[tuple[str, int]] = []
+
+    def allow(self, key_id: str, rpm_limit: int) -> bool:
+        self.calls.append((key_id, rpm_limit))
+        return self._allow
+
+
+def test_handle_chat_rate_limited_returns_429(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ROOT_KEY", "sk-root-good")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    store = _FakeStore({_hash_key("sk-og-tenant"): _fake_record(rpm_limit=60)})
+    monkeypatch.setattr("opengateway.mojo_bridge.db.get_store", lambda: store)
+    monkeypatch.setattr(
+        "opengateway.mojo_bridge.ratelimit.get_limiter", lambda: _FakeLimiter(allow=False)
+    )
+
+    envelope = handle_chat(
+        body={"model": "gpt-4", "messages": [{"role": "user", "content": "hi"}]},
+        authorization="Bearer sk-og-tenant",
+        provider_module="opengateway.providers.openai",
+    )
+    assert envelope["status"] == 429
+    assert "rate_limit_error" in envelope["body"]
+
+
+def test_handle_chat_rate_limiter_not_consulted_without_rpm_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ROOT_KEY", "sk-root-good")
+    store = _FakeStore({_hash_key("sk-og-tenant"): _fake_record(rpm_limit=None)})
+    monkeypatch.setattr("opengateway.mojo_bridge.db.get_store", lambda: store)
+    limiter = _FakeLimiter(allow=False)
+    monkeypatch.setattr("opengateway.mojo_bridge.ratelimit.get_limiter", lambda: limiter)
+
+    # No OPENAI_API_KEY → 502 from the provider path, proving the
+    # limiter never ran (a limiter denial would 429 first).
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    envelope = handle_chat(
+        body={"model": "gpt-4", "messages": [{"role": "user", "content": "hi"}]},
+        authorization="Bearer sk-og-tenant",
+        provider_module="opengateway.providers.openai",
+    )
+    assert envelope["status"] == 502
+    assert limiter.calls == []
 
 
 # ── Mojo import surface ──────────────────────────────────────────────────────
