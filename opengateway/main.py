@@ -90,7 +90,7 @@ async def chat_completions(
 
         async def stream_generator() -> AsyncGenerator[str, None]:
             async for chunk in provider.chat_stream(chat_req):
-                yield f"data: {chunk.model_dump_json()}\n\n"
+                yield f"data: {chunk}\n\n"
             yield "data: [DONE]\n\n"
 
         return StreamingResponse(
