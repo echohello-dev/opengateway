@@ -1,7 +1,6 @@
 """opengateway Mojo package.
 
-Exposes the Mojo HTTP server, router, and auth components built on flare.
-The provider adapters live in Python (opengateway.providers) and are
-called via Mojo's PythonObject bridge.
+Re-exports the Mojo entry point so ``mojo run opengateway/mojo/__init__.mojo``
+works as a direct alternative to ``mojo run opengateway/mojo/main.mojo``.
 """
-from .main import main as serve
+from .main import serve as main

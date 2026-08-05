@@ -46,8 +46,10 @@ them.
 
 Both servers implement the same endpoint contract, share the same
 provider adapters, and share the same auth and config layers. A
-deployment chooses one or the other at startup via the `GATEWAY_SERVER`
-environment variable (default `fastapi`).
+deployment chooses one or the other at startup: production ships the
+Mojo static binary as the image entrypoint (`Dockerfile`), while
+`uv run opengateway` brings up the FastAPI dev server for working on the
+bridge or a provider adapter.
 
 ## Why two servers?
 
@@ -66,16 +68,26 @@ constraints.
 | Throughput (local bench) | ~12 k req/s | ~240 k req/s (flare_mc_static) |
 | Ideal use | Default server. Use everywhere unless you have a reason not to. | Edge / Lambda / serverless / managed SaaS Phase 3. |
 
-For an open-source project, **the FastAPI server is the default**. The
-Mojo server exists for two reasons:
+For an open-source project, **the Mojo server is the default** as of
+ADR-003 (2026-07-31). FastAPI stays in-tree as the Python-only dev path.
+The Mojo server is the default because:
 
-1. **Positioning.** It is a concrete expression of the strategy note
-   in `Notes/2026-05-01 - OpenGateway AI Gateway Research and Strategy.md`:
-   "Bifrost is Go. OpenGateway is Python/Mojo - easier to customise."
-   Shipping on Mojo is the differentiator.
-2. **Operational shape.** A static binary is dramatically easier to
-   ship, scan, and scale for the managed SaaS tier. One CVE stream,
-   not `fastapi + pydantic + httpx + asyncpg + redis + structlog + ...`.
+1. **Static binary deployment.** A single ~30 MB distroless image, no
+   `pip install` in the container, sub-50 ms cold start.
+2. **Single CVE stream.** One binary to patch instead of
+   `fastapi + pydantic + httpx + asyncpg + redis + structlog + uvicorn + ...`.
+3. **Mature middleware stack.** `CatchPanic`, `RequestId`, `StructuredLogger`,
+   `Compress`, `Metrics`, `RateLimit`, `CircuitBreaker`, graceful drain —
+   all in-box from flare v0.9, no third-party middleware required.
+4. **Typed extractors + typed streaming-proxy surface.** `PathInt`, `Json[T]`,
+   `HeaderStr`, `StreamHandler`, `UpstreamChunkSource` — compile-time
+   guarantees on request shape and a designed-for shape for an LLM
+   gateway's streaming path.
+
+The FastAPI server stays as the Python-only dev path (`uv run opengateway`)
+for local iteration on the bridge or a provider adapter. The boundary
+with Python is unchanged: provider SDKs, auth, settings, anything
+stateful all stay in the bridge.
 
 ## Where the Mojo ↔ Python boundary lives
 
@@ -124,14 +136,35 @@ library directly. Every async provider call goes through
 Mojo layer does not own an event loop — each request gets its own
 short-lived loop on the bridge thread.
 
+### Streaming
+
+For `stream: true` the bridge validates synchronously (so 4xx/5xx
+fail before SSE headers are written), then spawns a pump thread per
+request that drives `provider.chat_stream` and pushes OpenAI-shaped
+SSE frames into a bounded `queue.Queue` (maxsize 64). The Mojo
+handler wraps the returned `StreamHandle` in a `ChunkSource`
+(`PythonQueueSource` in `opengateway/mojo/main.mojo`) and serves it
+via flare's `stream_response`, which frames each chunk as HTTP/1.1
+chunked transfer-encoding (or h2 DATA frames) with the canonical SSE
+headers. The queue's bound couples upstream reads to downstream drain;
+client disconnect flips the request `Cancel` token, the source calls
+`handle.cancel()`, and the pump unwinds between frames.
+
+The trade-off: `PythonQueueSource.next` blocks the flare worker up to
+500 ms per pull, so a worker serves one streaming request at a time —
+the same blocking profile as the non-streaming path. Size
+`num_workers` for concurrent streaming load. The flare-native upgrade
+(`serve_streaming` + `UpstreamChunkSource` over a UDS) removes the
+blocking pull and is tracked as a follow-up in ADR-003.
+
 ## Adding a provider
 
 To add a new provider (Anthropic, Bedrock, Mistral, etc.):
 
 1. Add the API key to `Settings` in `opengateway/config.py`.
 2. Implement `BaseProvider` in `opengateway/providers/<name>.py`.
-3. Add a routing rule in `opengateway/mojo/router.mojo` **and** in
-   the Python mirror at the bottom of `tests/test_mojo_bridge.py`.
+3. Add a routing rule in `opengateway/mojo/main.mojo`'s `_select_provider_module`
+   **and** in the Python mirror at the bottom of `tests/test_mojo_bridge.py`.
 4. Add an entry to the README provider matrix.
 
 The Python bridge dynamically imports the provider module by string
@@ -143,7 +176,7 @@ For both servers:
 
 - FastAPI: add a `@app.<method>` decorator in `opengateway/main.py`.
 - Mojo: add `router.<method>(path, handler)` in
-  `opengateway/mojo/main.mojo`.
+  `opengateway/mojo/main.mojo`'s `serve()` function.
 
 Keep the two handlers thin and delegate the actual logic to
 `opengateway.mojo_bridge`. That keeps the route definitions short
