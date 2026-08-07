@@ -7,9 +7,10 @@ it enforces the ``rpm_limit`` on each virtual key's ``AuthResult``.
 
 Design notes:
 
-- Fixed window per key per minute (``INCR`` + ``EXPIRE``), not a
-  sliding log. Slightly burstier at window edges, but one round-trip
-  and trivially correct across replicas.
+- Weighted sliding window (current bucket + previous bucket decayed
+  by elapsed fraction), not a naive fixed window. Kills the 2x
+  burst-at-window-edge problem at the cost of one extra ``GET`` per
+  check; still trivially correct across replicas.
 - One connection per check, same one-shot-``asyncio.run`` rationale as
   the virtual key store (see ``db.py``'s module docstring).
 - Fail-open: if Redis is unreachable the request is admitted and a
@@ -43,7 +44,7 @@ class RateLimiter(Protocol):
 
 
 class RedisRateLimiter:
-    """Fixed-window per-key RPM via Redis ``INCR`` + ``EXPIRE``."""
+    """Weighted sliding-window per-key RPM via Redis."""
 
     def __init__(self, redis_url: str) -> None:
         self._redis_url = redis_url
@@ -60,12 +61,21 @@ class RedisRateLimiter:
 
         client = redis.from_url(self._redis_url)
         try:
-            window = int(time.time() // 60)
-            bucket = f"opengateway:ratelimit:{key_id}:{window}"
-            count = await client.incr(bucket)
-            if count == 1:
-                await client.expire(bucket, 120)
-            return bool(count <= rpm_limit)
+            now = time.time()
+            window = int(now // 60)
+            elapsed_fraction = (now % 60) / 60.0
+
+            curr_bucket = f"opengateway:ratelimit:{key_id}:{window}"
+            prev_bucket = f"opengateway:ratelimit:{key_id}:{window - 1}"
+
+            prev_raw = await client.get(prev_bucket)
+            prev_count = int(prev_raw) if prev_raw else 0
+            curr_count = await client.incr(curr_bucket)
+            if curr_count == 1:
+                await client.expire(curr_bucket, 120)
+
+            estimated = prev_count * (1.0 - elapsed_fraction) + curr_count
+            return bool(estimated <= rpm_limit)
         finally:
             await client.aclose()
 

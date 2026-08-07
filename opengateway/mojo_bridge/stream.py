@@ -36,6 +36,7 @@ from opengateway.mojo_bridge.chat import (
     _to_chat_request,
     _validate_request,
 )
+from opengateway.mojo_bridge.db import record_usage_for
 
 logger = logging.getLogger("opengateway.mojo_bridge.stream")
 
@@ -47,6 +48,27 @@ _EOF = 2
 
 _QUEUE_MAXSIZE = 64
 _DONE_FRAME = "data: [DONE]\n\n"
+
+
+def _extract_total_tokens(chunk: str) -> int:
+    """Pull ``usage.total_tokens`` out of a raw SSE chunk payload.
+
+    Returns 0 when the chunk carries no usage object (every chunk
+    except the final one, when ``stream_options.include_usage`` is
+    set). Parse failures are treated as no-usage — the frame must
+    flow to the client regardless.
+    """
+    if '"usage"' not in chunk:
+        return 0
+    import json
+
+    try:
+        usage = json.loads(chunk).get("usage")
+    except json.JSONDecodeError:
+        return 0
+    if not usage:
+        return 0
+    return int(usage.get("total_tokens", 0))
 
 
 class StreamHandle:
@@ -63,11 +85,13 @@ class StreamHandle:
         provider_module: str,
         api_key: str,
         base_url: str | None = None,
+        key_id: str = "",
     ) -> None:
         self._body = body
         self._provider_module = provider_module
         self._api_key = api_key
         self._base_url = base_url
+        self._key_id = key_id
         self._queue: queue.Queue[str | None] = queue.Queue(maxsize=_QUEUE_MAXSIZE)
         self._cancel = threading.Event()
 
@@ -121,11 +145,13 @@ class StreamHandle:
     async def _run(self) -> None:
         provider_cls = _load_provider_class(self._provider_module)
         provider = provider_cls(api_key=self._api_key, base_url=self._base_url)
+        total_tokens = 0
         try:
             request = _to_chat_request(self._body, stream=True)
             async for chunk in provider.chat_stream(request):
                 if self._cancel.is_set():
                     return
+                total_tokens = _extract_total_tokens(chunk) or total_tokens
                 self._offer(f"data: {chunk}\n\n")
             self._offer(_DONE_FRAME)
         except Exception:
@@ -134,6 +160,8 @@ class StreamHandle:
                 self._offer(_DONE_FRAME)
         finally:
             await provider.close()
+            if not self._cancel.is_set():
+                record_usage_for(self._key_id, total_tokens)
 
     def _offer(self, item: str | None, deadline_s: float = 2.0) -> None:
         """Put ``item`` on the queue with backpressure, respecting cancel.
@@ -182,6 +210,7 @@ def start_streaming_chat(
         provider_module,
         api_key,
         base_url=_resolve_provider_base_url(settings, body["model"]),
+        key_id=auth.key_id,
     )
     handle.start()
     return {"status": 200, "handle": handle}

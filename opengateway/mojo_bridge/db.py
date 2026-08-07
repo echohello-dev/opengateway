@@ -50,6 +50,17 @@ FROM virtual_keys
 WHERE key_hash = $1 AND revoked_at IS NULL;
 """
 
+# Budgets are token-denominated: ``budget_used`` counts cumulative
+# total tokens (prompt + completion) served to the key. A
+# price-per-model dollar mapping is a deliberate follow-up — it needs
+# a pricing table with a maintenance story, which is a product
+# decision, not a schema decision.
+_RECORD_USAGE_SQL = """
+UPDATE virtual_keys
+SET budget_used = budget_used + $2
+WHERE key_id = $1;
+"""
+
 
 @dataclass(frozen=True, slots=True)
 class VirtualKeyRecord:
@@ -71,6 +82,14 @@ class VirtualKeyStore(Protocol):
     def lookup(self, key_hash: str) -> VirtualKeyRecord | None:
         """Return the record for ``key_hash``, or ``None`` if unknown
         or revoked."""
+        ...
+
+    def record_usage(self, key_id: str, total_tokens: int) -> None:
+        """Increment ``budget_used`` for ``key_id`` by ``total_tokens``.
+
+        Implementations must be fail-open (log and swallow errors):
+        usage accounting must never fail a user-facing request.
+        """
         ...
 
 
@@ -114,6 +133,23 @@ class PostgresVirtualKeyStore:
         finally:
             await conn.close()
 
+    def record_usage(self, key_id: str, total_tokens: int) -> None:
+        if total_tokens <= 0:
+            return
+        try:
+            asyncio.run(self._record_usage(key_id, total_tokens))
+        except Exception:
+            logger.warning("failed to record usage for %s", key_id, exc_info=True)
+
+    async def _record_usage(self, key_id: str, total_tokens: int) -> None:
+        import asyncpg
+
+        conn = await asyncpg.connect(self._database_url)
+        try:
+            await conn.execute(_RECORD_USAGE_SQL, key_id, float(total_tokens))
+        finally:
+            await conn.close()
+
 
 _store: VirtualKeyStore | None = None
 _store_initialised = False
@@ -147,3 +183,17 @@ def reset_store_cache() -> None:
     global _store, _store_initialised
     _store = None
     _store_initialised = False
+
+
+def record_usage_for(key_id: str, total_tokens: int) -> None:
+    """Record token usage against a virtual key, best-effort.
+
+    Skips the root key (no row exists for it) and no-store
+    deployments. Never raises — accounting must not fail requests.
+    """
+    if key_id == "root" or total_tokens <= 0:
+        return
+    store = get_store()
+    if store is None:
+        return
+    store.record_usage(key_id, total_tokens)

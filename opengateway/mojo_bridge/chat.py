@@ -13,6 +13,7 @@ from typing import Any
 
 from opengateway.config import get_settings
 from opengateway.mojo_bridge.auth import AuthResult, authenticate_authorization
+from opengateway.mojo_bridge.db import record_usage_for
 from opengateway.providers.base import ChatRequest
 
 logger = logging.getLogger("opengateway.mojo_bridge.chat")
@@ -49,7 +50,10 @@ def chat_completion(
     _enforce_budget(auth)
     _enforce_rate_limit(auth)
 
-    return asyncio.run(_run_completion(body, provider_module))
+    result = asyncio.run(_run_completion(body, provider_module))
+    usage = result.get("usage") or {}
+    record_usage_for(auth.key_id, int(usage.get("total_tokens", 0)))
+    return result
 
 
 async def _run_completion(body: dict[str, Any], provider_module: str) -> dict[str, Any]:
@@ -109,6 +113,16 @@ def _enforce_rate_limit(auth: AuthResult) -> None:
 
 
 def _to_chat_request(body: dict[str, Any], *, stream: bool = False) -> ChatRequest:
+    extra = {
+        k: v
+        for k, v in body.items()
+        if k not in {"model", "messages", "temperature", "max_tokens", "top_p", "stream"}
+    }
+    if stream:
+        # Guarantee a usage-bearing final chunk so the bridge can record
+        # spend for streamed requests; spec-compliant for OpenAI-shaped
+        # upstreams and harmless to clients.
+        extra.setdefault("stream_options", {"include_usage": True})
     return ChatRequest(
         model=body["model"],
         messages=body["messages"],
@@ -116,11 +130,7 @@ def _to_chat_request(body: dict[str, Any], *, stream: bool = False) -> ChatReque
         max_tokens=body.get("max_tokens"),
         top_p=body.get("top_p"),
         stream=stream,
-        extra={
-            k: v
-            for k, v in body.items()
-            if k not in {"model", "messages", "temperature", "max_tokens", "top_p", "stream"}
-        },
+        extra=extra,
     )
 
 
