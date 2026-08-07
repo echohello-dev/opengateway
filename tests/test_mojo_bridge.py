@@ -155,7 +155,9 @@ def test_handle_chat_no_api_key_returns_502_envelope(monkeypatch: pytest.MonkeyP
 
 
 def _register_fake_provider(
-    chunks: list[str], module_name: str = "opengateway.providers.fake"
+    chunks: list[str],
+    module_name: str = "opengateway.providers.fake",
+    usage: dict[str, int] | None = None,
 ) -> None:
     """Install a stub provider module so the bridge's importlib dispatch
     resolves a class without touching the network."""
@@ -163,11 +165,20 @@ def _register_fake_provider(
     import sys
     import types
 
-    from opengateway.providers.base import BaseProvider
+    from opengateway.providers.base import BaseProvider, ChatResponse
 
     class FakeProvider(BaseProvider):
         def __init__(self, api_key: str, base_url: str | None = None) -> None:
             super().__init__(api_key, base_url)
+
+        async def chat(self, request: Any) -> ChatResponse:
+            return ChatResponse(
+                id="chatcmpl-test",
+                model=request.model,
+                content="".join(chunks),
+                usage=usage or {"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3},
+                finish_reason="stop",
+            )
 
         async def chat_stream(self, request: Any):
             for text in chunks:
@@ -184,6 +195,19 @@ def _register_fake_provider(
                                 "finish_reason": None,
                             }
                         ],
+                    }
+                )
+            if usage is not None:
+                # The terminal usage chunk OpenAI emits when
+                # stream_options.include_usage is set.
+                yield json.dumps(
+                    {
+                        "id": "chatcmpl-test",
+                        "object": "chat.completion.chunk",
+                        "created": 0,
+                        "model": request.model,
+                        "choices": [],
+                        "usage": usage,
                     }
                 )
 
@@ -294,10 +318,14 @@ class _FakeStore:
     def __init__(self, records: dict[str, Any]) -> None:
         self._records = records
         self.calls = 0
+        self.recorded: list[tuple[str, int]] = []
 
     def lookup(self, key_hash: str) -> Any:
         self.calls += 1
         return self._records.get(key_hash)
+
+    def record_usage(self, key_id: str, total_tokens: int) -> None:
+        self.recorded.append((key_id, total_tokens))
 
 
 def _fake_record(**overrides: Any) -> Any:
@@ -406,6 +434,96 @@ def test_handle_chat_rate_limiter_not_consulted_without_rpm_limit(
     )
     assert envelope["status"] == 502
     assert limiter.calls == []
+
+
+# ── Spend recording ──────────────────────────────────────────────────────────
+
+
+def test_handle_chat_records_usage_for_virtual_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ROOT_KEY", "sk-root-good")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    store = _FakeStore({_hash_key("sk-og-tenant"): _fake_record()})
+    monkeypatch.setattr("opengateway.mojo_bridge.db.get_store", lambda: store)
+    _register_fake_provider(
+        ["ok"], usage={"prompt_tokens": 5, "completion_tokens": 7, "total_tokens": 12}
+    )
+
+    envelope = handle_chat(
+        body={"model": "gpt-4", "messages": [{"role": "user", "content": "hi"}]},
+        authorization="Bearer sk-og-tenant",
+        provider_module="opengateway.providers.fake",
+    )
+    assert envelope["status"] == 200
+    assert store.recorded == [("vk_test", 12)]
+
+
+def test_handle_chat_does_not_record_for_root_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ROOT_KEY", "sk-root-good")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    store = _FakeStore({})
+    monkeypatch.setattr("opengateway.mojo_bridge.db.get_store", lambda: store)
+    _register_fake_provider(["ok"])
+
+    envelope = handle_chat(
+        body={"model": "gpt-4", "messages": [{"role": "user", "content": "hi"}]},
+        authorization="Bearer sk-root-good",
+        provider_module="opengateway.providers.fake",
+    )
+    assert envelope["status"] == 200
+    assert store.recorded == []
+
+
+def test_stream_records_usage_from_usage_chunk(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ROOT_KEY", "sk-root-good")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    store = _FakeStore({_hash_key("sk-og-tenant"): _fake_record()})
+    monkeypatch.setattr("opengateway.mojo_bridge.db.get_store", lambda: store)
+    _register_fake_provider(
+        ["Hello"], usage={"prompt_tokens": 3, "completion_tokens": 4, "total_tokens": 7}
+    )
+
+    envelope = handle_chat_stream(
+        body={"model": "gpt-4", "messages": [{"role": "user", "content": "hi"}]},
+        authorization="Bearer sk-og-tenant",
+        provider_module="opengateway.providers.fake",
+    )
+    assert envelope["status"] == 200
+    frames = _drain_stream(envelope["handle"])
+    assert frames[-1] == "data: [DONE]\n\n"
+    assert store.recorded == [("vk_test", 7)]
+
+
+def test_stream_without_usage_chunk_records_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ROOT_KEY", "sk-root-good")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    store = _FakeStore({_hash_key("sk-og-tenant"): _fake_record()})
+    monkeypatch.setattr("opengateway.mojo_bridge.db.get_store", lambda: store)
+    _register_fake_provider(["Hello"], usage=None)
+
+    envelope = handle_chat_stream(
+        body={"model": "gpt-4", "messages": [{"role": "user", "content": "hi"}]},
+        authorization="Bearer sk-og-tenant",
+        provider_module="opengateway.providers.fake",
+    )
+    assert envelope["status"] == 200
+    _drain_stream(envelope["handle"])
+    assert store.recorded == []
+
+
+def test_budget_enforcement_uses_recorded_spend(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ROOT_KEY", "sk-root-good")
+    store = _FakeStore(
+        {_hash_key("sk-og-tenant"): _fake_record(max_budget=100.0, budget_used=100.0)}
+    )
+    monkeypatch.setattr("opengateway.mojo_bridge.db.get_store", lambda: store)
+
+    envelope = handle_chat(
+        body={"model": "gpt-4", "messages": [{"role": "user", "content": "hi"}]},
+        authorization="Bearer sk-og-tenant",
+        provider_module="opengateway.providers.openai",
+    )
+    assert envelope["status"] == 429
+    assert "budget" in envelope["body"]
 
 
 # ── Mojo import surface ──────────────────────────────────────────────────────
