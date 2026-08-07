@@ -27,6 +27,7 @@ from typing import Any
 from opengateway.mojo_bridge.auth import AuthResult, authenticate_authorization
 from opengateway.mojo_bridge.chat import chat_completion, health_check
 from opengateway.mojo_bridge.stream import start_streaming_chat
+from opengateway.mojo_bridge.tls_proxy import start_tls_proxy
 
 __all__ = [
     "handle_chat",
@@ -34,6 +35,7 @@ __all__ = [
     "health_check",
     "authenticate_authorization",
     "AuthResult",
+    "start_tls_proxy",
 ]
 
 logger = logging.getLogger("opengateway.mojo_bridge")
