@@ -25,12 +25,24 @@ mypy = ">=1.14,<2.0"
 
 [feature.mojo.dependencies]
 flare = { git = "https://github.com/ehsanmok/flare.git", tag = "v0.9.0" }
+# cargo + rustc are needed to build flare's rustls QUIC cdylib when
+# enabling HTTP/3 (follow-up ADR-003 #6). flare's pixi activation
+# scripts detect cargo via PATH; declaring it as a mojo-env dep makes
+# the rustls cdylib build succeed on a clean `pixi install`.
+rust = ">=1.83,<2"
 
 [feature.mojo.tasks]
 format = "mojo format opengateway/mojo/"
 test = "mojo test opengateway/mojo/"
 build = "mojo build opengateway/mojo/main.mojo -O3 -D ASSERT=none -o dist-mojo/opengateway-mojo"
 serve = "mojo run opengateway/mojo/main.mojo"
+# Builds flare's rustls QUIC cdylib (libflare_rustls_quic.so / .dylib)
+# into the pixi env's lib dir. Runs flare's own build_rustls.sh, which
+# the activation hook in flare's own pixi.toml invokes but our conda-
+# built flare package omits. Required before HTTP/3 can link.
+# Idempotent — cargo's incremental build + the script's atomic install
+# make re-runs cheap.
+rustls-build = "bash .pixi/envs/mojo/lib/mojo/flare/tls/ffi/build_rustls.sh"
 
 [environments]
 mojo = ["mojo"]
