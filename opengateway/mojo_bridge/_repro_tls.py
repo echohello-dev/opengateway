@@ -8,6 +8,7 @@ socket, prints whether recv ever returns data, then exits. Used from
 
 from __future__ import annotations
 
+import contextlib
 import socket
 import ssl
 import threading
@@ -102,17 +103,13 @@ def repro(timeout_s: float = 5.0) -> dict:
                         break
                     record(f"accept: recv {len(data)} bytes")
             finally:
-                try:
+                with contextlib.suppress(Exception):
                     tls.close()
-                except Exception:
-                    pass
         except Exception as exc:
             record(f"accept: exception {type(exc).__name__}: {exc}")
         finally:
-            try:
+            with contextlib.suppress(Exception):
                 listener.close()
-            except Exception:
-                pass
             record("accept: closed")
 
     t = threading.Thread(target=accept_one, daemon=True)
@@ -132,7 +129,7 @@ def repro(timeout_s: float = 5.0) -> dict:
             try:
                 data = tls.recv(4096)
                 record(f"client: recv {len(data)} bytes")
-            except (socket.timeout, ssl.SSLWantReadError) as exc:
+            except (TimeoutError, ssl.SSLWantReadError) as exc:
                 record(f"client: recv timeout: {type(exc).__name__}")
             except Exception as exc:
                 record(f"client: recv exception {type(exc).__name__}: {exc}")
