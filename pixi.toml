@@ -24,7 +24,13 @@ ruff = ">=0.9,<1.0"
 mypy = ">=1.14,<2.0"
 
 [feature.mojo.dependencies]
-flare = { git = "https://github.com/ehsanmok/flare.git", tag = "v0.9.0" }
+# Pinned to commit edf3f22 ("feat(tls): non-blocking server TLS reactor +
+# HTTPS/1.1 serve_tls") rather than v0.9.0 — pulls the reactor-side TLS
+# serving into opengateway so the in-binary stdlib-ssl proxy is no
+# longer needed. This SHA is the last commit on Mojo 1.0.0b2 before
+# flare migrated to 1.0.0rc0 in a86b0a5; bumping to rc0 would require
+# a parallel Mojo toolchain bump in opengateway.
+flare = { git = "https://github.com/ehsanmok/flare.git", rev = "edf3f22a2f67eb2662c76c813d918113313cf0eb" }
 # cargo + rustc are needed to build flare's rustls QUIC cdylib when
 # enabling HTTP/3 (follow-up ADR-003 #6). flare's pixi activation
 # scripts detect cargo via PATH; declaring it as a mojo-env dep makes
