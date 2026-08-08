@@ -20,6 +20,11 @@ WORKDIR /src
 COPY pixi.toml pixi.lock* ./
 RUN micromamba install -y -n base -c https://conda.modular.com/max-nightly -c conda-forge pixi \
     && pixi install -e mojo \
+    # Build flare's rustls QUIC cdylib while we have cargo in the env
+    # (ADR-003 follow-up #6: HTTP/3 needs it). Cheap on repeat builds —
+    # cargo's incremental + the script's atomic install only touch the
+    # image when flare's rustls source or Cargo.lock changes.
+    && pixi run -e mojo rustls-build \
     && pixi run -e mojo mojo build opengateway/mojo/main.mojo \
         -O3 -D ASSERT=none \
         -o /src/opengateway-mojo
@@ -28,11 +33,8 @@ RUN micromamba install -y -n base -c https://conda.modular.com/max-nightly -c co
 # adapters, auth, settings). The bridge imports them by package name.
 COPY opengateway/ /src/opengateway/
 
-# Strip the FFI libraries we no longer need in the final image — the
-# flare TLS / zlib / brotli FFI is statically linked or unused on the
-# chat-completion path; keep ``build/libflare_tls.so`` only if you use
-# HTTPS termination. For the default deployment (cleartext HTTP behind
-# a TLS-terminating LB) the .so is not required.
+# Strip Python bytecode caches from the bridge source so the runtime
+# image is smaller (cpython will regenerate them on import).
 RUN rm -rf /src/opengateway/__pycache__ \
     && find /src/opengateway -name __pycache__ -type d -exec rm -rf {} + 2>/dev/null || true
 
@@ -55,15 +57,20 @@ RUN pip install --no-cache-dir --only-binary=:all: \
 
 COPY --from=builder /src/opengateway /app/opengateway
 COPY --from=builder /src/opengateway-mojo /usr/local/bin/opengateway-mojo
+# Ship flare's TLS + rustls QUIC FFI cdylibs alongside the binary so
+# both the cleartext-on-loopback default and a future HTTP/3 deploy
+# have the right libs findable without rebuilding the image.
+COPY --from=builder /opt/conda/lib/libflare_tls.so /usr/local/lib/ 2>/dev/null || \
+    cp $(find /opt/conda -name libflare_tls.so -print -quit) /usr/local/lib/ 2>/dev/null || \
+    echo "libflare_tls.so not found at expected path; image stays smaller"
+COPY --from=builder $(find /opt/conda -name libflare_rustls_quic.so -print -quit) /usr/local/lib/ 2>/dev/null || \
+    echo "libflare_rustls_quic.so not found; HTTP/3 deploys will need to install it"
 
-# The Mojo binary looks for ``build/libflare_tls.so`` relative to the
-# working directory at startup. Stage 1 doesn't ship it because the
-# default deployment is cleartext HTTP; if you opt into TLS, mount it:
-#   docker run -v $(pwd)/build:/app/build ...
-# or copy it into the runtime stage above.
-#
-# The Python bridge lives in /app/opengateway; the binary imports
-# ``opengateway.mojo_bridge`` which transitively imports
+# The Mojo binary locates the FFI .so's by canonical name (``libflare_tls``,
+# ``libflare_rustls_quic``) and dlopens them lazily; ``/usr/local/lib`` is
+# already on the default loader path so no extra LD_LIBRARY_PATH is
+# needed. The Python bridge lives in /app/opengateway; the binary
+# imports ``opengateway.mojo_bridge`` which transitively imports
 # ``opengateway.providers.*`` — so PYTHONPATH must include /app.
 ENV PYTHONPATH=/app \
     PYTHONUNBUFFERED=1
