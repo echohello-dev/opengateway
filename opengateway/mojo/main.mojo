@@ -49,6 +49,7 @@ from flare.http import (
 from flare.net import SocketAddr
 
 from std.python import Python, PythonObject
+from std.python._cpython import GILReleased
 
 
 # ── Bridge (lazily imported Python module) ──────────────────────────────────
@@ -333,8 +334,32 @@ def serve(
     var stack = CatchPanic(AppShell(measured^))
 
     var addr = SocketAddr.parse(host + ":" + String(port))
-    var server = HttpServer.bind(addr)
 
+    # TLS termination (ADR-003 follow-up 4): when TLS_CERT_FILE /
+    # TLS_KEY_FILE are set, bind over HTTPS via flare's reactor-native
+    # TLS state machine (``HttpServer.bind_tls`` + ``serve_tls``). The
+    # plain reactor remains the default for deployments that terminate
+    # TLS at the edge LB.
+    var tls_cert = getenv("TLS_CERT_FILE")
+    var tls_key = getenv("TLS_KEY_FILE")
+    var tls_enabled = tls_cert.byte_length() > 0 and tls_key.byte_length() > 0
+
+    var server: HttpServer
+    if tls_enabled:
+        var alpn = List[String]()
+        alpn.append("http/1.1")
+        server = HttpServer.bind_tls(addr, tls_cert, tls_key, alpn=alpn^)
+        print(
+            "opengateway (mojo): HTTPS on",
+            String(addr),
+            "with",
+            String(num_workers),
+            "workers",
+        )
+        server.serve_tls(stack^)
+        return
+
+    server = HttpServer.bind(addr)
     print(
         "opengateway (mojo): listening on",
         String(addr),
@@ -342,7 +367,14 @@ def serve(
         String(num_workers),
         "workers",
     )
-    server.serve(stack^, num_workers=num_workers)
+    # Release the GIL for the reactor's lifetime. The Mojo runtime
+    # initialises CPython with the calling thread holding the GIL; if
+    # main never releases, the Python-side daemon threads spawned by
+    # the bridge (streaming pump) cannot schedule. Worker threads
+    # re-acquire the GIL per bridge call via the interop layer.
+    var py = Python()
+    with GILReleased(py):
+        server.serve(stack^, num_workers=num_workers)
 
 
 def main() raises:
