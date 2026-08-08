@@ -85,6 +85,32 @@ $ curl -s -X POST http://localhost:8080/v1/chat/completions \
 
 ---
 
+### TLS termination (in-binary)
+
+Set `TLS_CERT_FILE` and `TLS_KEY_FILE` (PEM-encoded) to terminate TLS
+inside the Mojo binary via flare's reactor-side TLS state machine —
+no sidecar, no edge LB. When unset, the listener accepts cleartext on
+the loopback address so an LB can terminate TLS in front. The
+`TLS_PORT` env var is unused — the listener binds on `PORT`.
+
+```bash
+$ TLS_CERT_FILE=./server.pem TLS_KEY_FILE=./server.key ./og-tls3
+opengateway (mojo): HTTPS on 127.0.0.1:8080 with 1 workers
+
+$ curl --cacert ./server.pem --resolve localhost:8080:127.0.0.1 \
+    https://localhost:8080/health
+{"status":"ok"}
+```
+
+> **Self-signed cert gotcha.** The in-binary TLS path requires the cert
+> subject to match the hostname curl uses. Generate the cert with
+> `CN=localhost` (not `CN=127.0.0.1`) and use `--resolve
+> localhost:8080:127.0.0.1` so the cert verifies. Hitting
+> `https://127.0.0.1:8080/health` directly will exit code 60 silently
+> under `curl -s` and look like a hang.
+
+---
+
 ## Drop-in Replacement
 
 Point any OpenAI-compatible client at OpenGateway with one line. Same API, same SDK, no code changes.
