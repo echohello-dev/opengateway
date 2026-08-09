@@ -319,7 +319,32 @@ def serve(
     - RequestId: inject / propagate ``X-Request-Id``; close to the
       router so the id propagates through every header + log line.
     - Router: the application dispatcher.
+
+    ``HTTP3_ENABLED=1`` was planned to bind a UDP/QUIC listener in
+    addition to the TCP/TLS one, but the flare reactor-side h3 driver
+    (the one ``tick_http3_once`` / ``pump_http3_handler_once`` /
+    ``emit_http3_response`` test helpers expose) is not yet integrated
+    into ``serve()`` at the pinned commit, so binding without driving
+    the socket would silently accept no packets. We surface a clear
+    error instead. See ADR-003 follow-up 6.
     """
+    # Guard for ADR-003 #6: HTTP3_ENABLED was wired to bind_with_http3
+    # in an earlier iteration, but at the pinned flare commit the
+    # reactor's main ``serve()`` does not drive the h3 UDP loop
+    # (``tick_http3_once`` / ``pump_http3_handler_once`` are test-only
+    # entry points). The HTTP/3 listener exists on ``bind`` but never
+    # processes datagrams. Refuse loudly rather than bind a port that
+    # silently accepts nothing -- a flapping h3 path is worse than a
+    # documented "pending upstream integration".
+    if getenv("HTTP3_ENABLED").byte_length() > 0:
+        raise Error(
+            "opengateway: HTTP3_ENABLED is set but flare's reactor-"
+            "side h3 driver is not yet integrated into serve() at the "
+            "pinned commit. ADR-003 follow-up 6. Disable HTTP3_ENABLED "
+            "(TLS over TCP still works) or upgrade opengateway's flare "
+            "pin once the reactor integration lands upstream."
+        )
+
     var router = Router()
     router.get("/health", health)
     router.post("/v1/chat/completions", chat_completions)
