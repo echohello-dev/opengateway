@@ -3,6 +3,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Vendored flare source (managed by pixi, see pixi.toml)
+flare/
+
 # C extensions
 *.so
 
