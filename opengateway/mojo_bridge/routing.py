@@ -199,9 +199,7 @@ class _RetryableError(RuntimeError):
         self.original = original
 
 
-def _provider_call_kwargs(
-    provider_module: str, body: dict[str, Any]
-) -> tuple[str, str | None]:
+def _provider_call_kwargs(provider_module: str, body: dict[str, Any]) -> tuple[str, str | None]:
     """Resolve the API key + base URL for ``provider_module``.
 
     Only enforces "API key configured" for modules with a registered
@@ -215,9 +213,7 @@ def _provider_call_kwargs(
     return api_key or "", resolve_provider_base_url(provider_module)
 
 
-async def _provider_chat(
-    provider_module: str, body: dict[str, Any]
-) -> _OpenAIEnvelope:
+async def _provider_chat(provider_module: str, body: dict[str, Any]) -> _OpenAIEnvelope:
     """Run a single non-streaming provider call, mapping transient
     failures to ``_RetryableError`` so ``chat_with_fallback`` can pick them
     up, and mapping non-retryable upstream HTTP errors to a plain
@@ -245,8 +241,7 @@ async def _provider_chat(
             # internal_error, since this is the provider failing, not
             # us.
             raise RuntimeError(
-                f"upstream provider {provider_module} returned "
-                f"{exc.response.status_code}"
+                f"upstream provider {provider_module} returned {exc.response.status_code}"
             ) from exc
         raise
     finally:
@@ -359,7 +354,9 @@ async def chat_stream_with_fallback(
 
     # ── Fallback attempt ───────────────────────────────────────────────
     if fallback_module is None or fallback_module == primary_module or primary_failed is None:
-        raise StreamFallbackError(primary_failed or RuntimeError("primary failed"), on_fallback=False)
+        raise StreamFallbackError(
+            primary_failed or RuntimeError("primary failed"), on_fallback=False
+        )
 
     logger.info(
         "retried streaming on fallback",
