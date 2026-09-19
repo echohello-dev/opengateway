@@ -35,6 +35,11 @@ class AuthResult:
     budget_used: float
     tpm_limit: int | None
     rpm_limit: int | None
+    # Dollar cost cap (USD). Independent from ``max_budget`` which is
+    # token-denominated (ADR-003 §166). When set, the bridge estimates
+    # the upstream cost of each request and rejects before the call when
+    # the estimate would exceed this cap. ``None`` = no dollar cap.
+    max_cost_usd: float | None = None
 
 
 # key_hash -> (AuthResult, expires_at). In-process only; revocation
@@ -101,6 +106,7 @@ def _lookup_virtual_key(key_hash: str) -> AuthResult | None:
         models=record.models,
         max_budget=record.max_budget,
         budget_used=record.budget_used,
+        max_cost_usd=record.max_cost_usd,
         tpm_limit=record.tpm_limit,
         rpm_limit=record.rpm_limit,
     )

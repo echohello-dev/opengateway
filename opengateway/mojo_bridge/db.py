@@ -27,25 +27,33 @@ logger = logging.getLogger("opengateway.mojo_bridge.db")
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS virtual_keys (
-    key_id      TEXT PRIMARY KEY,
-    key_hash    TEXT NOT NULL UNIQUE,
-    name        TEXT NOT NULL DEFAULT '',
-    team_id     TEXT,
-    org_id      TEXT,
-    is_admin    BOOLEAN NOT NULL DEFAULT FALSE,
-    models      JSONB,
-    max_budget  DOUBLE PRECISION,
-    budget_used DOUBLE PRECISION NOT NULL DEFAULT 0,
-    tpm_limit   INTEGER,
-    rpm_limit   INTEGER,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    revoked_at  TIMESTAMPTZ
+    key_id        TEXT PRIMARY KEY,
+    key_hash      TEXT NOT NULL UNIQUE,
+    name          TEXT NOT NULL DEFAULT '',
+    team_id       TEXT,
+    org_id        TEXT,
+    is_admin      BOOLEAN NOT NULL DEFAULT FALSE,
+    models        JSONB,
+    max_budget    DOUBLE PRECISION,
+    budget_used   DOUBLE PRECISION NOT NULL DEFAULT 0,
+    max_cost_usd  DOUBLE PRECISION,
+    tpm_limit     INTEGER,
+    rpm_limit     INTEGER,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    revoked_at    TIMESTAMPTZ
 );
 """
 
+# ``ALTER TABLE ... ADD COLUMN IF NOT EXISTS`` is idempotent in Postgres ≥ 9.6.
+# Run alongside ``ensure_schema`` so deployments on the pre-#4 schema pick
+# up the new column without an out-of-band migration step.
+_SCHEMA_MIGRATIONS = [
+    "ALTER TABLE virtual_keys ADD COLUMN IF NOT EXISTS max_cost_usd DOUBLE PRECISION;",
+]
+
 _LOOKUP_SQL = """
 SELECT key_id, name, is_admin, models, max_budget, budget_used,
-       tpm_limit, rpm_limit
+       max_cost_usd, tpm_limit, rpm_limit
 FROM virtual_keys
 WHERE key_hash = $1 AND revoked_at IS NULL;
 """
@@ -72,8 +80,9 @@ class VirtualKeyRecord:
     models: list[str] | None
     max_budget: float | None
     budget_used: float
-    tpm_limit: int | None
-    rpm_limit: int | None
+    max_cost_usd: float | None = None
+    tpm_limit: int | None = None
+    rpm_limit: int | None = None
 
 
 class VirtualKeyStore(Protocol):
@@ -120,6 +129,7 @@ class PostgresVirtualKeyStore:
             models=list(row["models"]) if row["models"] is not None else None,
             max_budget=row["max_budget"],
             budget_used=row["budget_used"],
+            max_cost_usd=row["max_cost_usd"],
             tpm_limit=row["tpm_limit"],
             rpm_limit=row["rpm_limit"],
         )
@@ -130,6 +140,8 @@ class PostgresVirtualKeyStore:
         conn = await asyncpg.connect(self._database_url)
         try:
             await conn.execute(_SCHEMA)
+            for migration in _SCHEMA_MIGRATIONS:
+                await conn.execute(migration)
         finally:
             await conn.close()
 

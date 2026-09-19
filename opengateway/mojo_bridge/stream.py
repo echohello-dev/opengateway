@@ -2,9 +2,9 @@
 
 The Mojo ``/v1/chat/completions`` handler calls ``start_streaming_chat``
 for requests with ``stream: true``. Validation (auth, model access,
-budget) runs synchronously on the calling thread so a bad request
-fails before any SSE headers are written; only the upstream HTTP call
-moves to a background thread.
+budget, cost cap) runs synchronously on the calling thread so a bad
+request fails before any SSE headers are written; only the upstream
+HTTP call moves to a background thread.
 
 The background thread drives the async provider's ``chat_stream``
 generator and pushes OpenAI-shaped SSE frames (``data: {...}\\n\\n``)
@@ -17,26 +17,26 @@ memory without bound.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import queue
 import threading
 import time
 from typing import Any
 
-from opengateway.config import get_settings
 from opengateway.mojo_bridge.auth import authenticate_authorization
 from opengateway.mojo_bridge.chat import (
     _enforce_budget,
+    _enforce_cost_cap,
     _enforce_model_access,
     _enforce_rate_limit,
-    _load_provider_class,
-    _resolve_provider_api_key,
-    _resolve_provider_base_url,
-    _to_chat_request,
     _validate_request,
 )
 from opengateway.mojo_bridge.db import record_usage_for
+from opengateway.mojo_bridge.routing import (
+    StreamFallbackError,
+    chat_stream_with_fallback,
+    resolve_route,
+)
 
 logger = logging.getLogger("opengateway.mojo_bridge.stream")
 
@@ -77,20 +77,21 @@ class StreamHandle:
     The Mojo layer holds this as an opaque ``PythonObject`` and calls
     ``next_chunk`` / ``cancel`` on it. All coordination is through the
     bounded queue plus the cancel event; no shared mutable state.
+
+    The provider path is resolved at construction time via the routing
+    table so the pump thread doesn't re-resolve on every chunk.
     """
 
     def __init__(
         self,
         body: dict[str, Any],
-        provider_module: str,
-        api_key: str,
-        base_url: str | None = None,
+        primary_module: str,
+        fallback_module: str | None,
         key_id: str = "",
     ) -> None:
         self._body = body
-        self._provider_module = provider_module
-        self._api_key = api_key
-        self._base_url = base_url
+        self._primary_module = primary_module
+        self._fallback_module = fallback_module
         self._key_id = key_id
         self._queue: queue.Queue[str | None] = queue.Queue(maxsize=_QUEUE_MAXSIZE)
         self._cancel = threading.Event()
@@ -136,6 +137,8 @@ class StreamHandle:
 
     def _pump(self) -> None:
         try:
+            import asyncio
+
             asyncio.run(self._run())
         except Exception:
             logger.exception("streaming pump crashed before event loop start")
@@ -143,23 +146,40 @@ class StreamHandle:
             self._offer(None)
 
     async def _run(self) -> None:
-        provider_cls = _load_provider_class(self._provider_module)
-        provider = provider_cls(api_key=self._api_key, base_url=self._base_url)
         total_tokens = 0
         try:
-            request = _to_chat_request(self._body, stream=True)
-            async for chunk in provider.chat_stream(request):
-                if self._cancel.is_set():
-                    return
+            async for chunk in chat_stream_with_fallback(
+                self._body,
+                primary_module=self._primary_module,
+                fallback_module=self._fallback_module,
+                cancel=self._cancel,
+            ):
                 total_tokens = _extract_total_tokens(chunk) or total_tokens
                 self._offer(f"data: {chunk}\n\n")
             self._offer(_DONE_FRAME)
+        except StreamFallbackError as exc:
+            logger.warning(
+                "streaming failed before any frame could be served",
+                extra={
+                    "primary": self._primary_module,
+                    "fallback": self._fallback_module,
+                    "on_fallback": exc.on_fallback,
+                },
+                exc_info=exc.original,
+            )
+            # We've already committed to a stream response, so we
+            # can't switch to a JSON error envelope. Close the stream
+            # cleanly with the canonical terminator and let the
+            # client surface the truncation. (Streaming providers
+            # that error after frames are already sent are handled the
+            # same way — see the catch-all in the helper.)
+            if not self._cancel.is_set():
+                self._offer(_DONE_FRAME)
         except Exception:
             logger.exception("upstream streaming failure")
             if not self._cancel.is_set():
                 self._offer(_DONE_FRAME)
         finally:
-            await provider.close()
             if not self._cancel.is_set():
                 record_usage_for(self._key_id, total_tokens)
 
@@ -197,20 +217,54 @@ def start_streaming_chat(
     auth = authenticate_authorization(authorization)
     _validate_request(body)
     _enforce_model_access(auth, body["model"])
+    route, resolved_primary = resolve_route(body["model"], default_module=provider_module)
     _enforce_budget(auth)
+    _enforce_cost_cap(auth, route, body)
     _enforce_rate_limit(auth)
 
-    settings = get_settings()
-    api_key = _resolve_provider_api_key(settings, body["model"])
-    if not api_key:
-        raise RuntimeError(f"no API key configured for model {body['model']}")
+    # Pre-flight the primary provider's API key. Without this, the
+    # pump thread would fail after we've already returned
+    # ``{"status": 200, "handle": ...}``, leaving the Mojo layer
+    # committed to a 200 stream with no way to surface the missing-
+    # key error. The bridge maps ``RuntimeError`` to 502.
+    #
+    # Only enforced for modules with a registered API key field
+    # (``openai``, ``anthropic``); custom adapters and test stubs are
+    # allowed to operate without one — their own ``chat_stream``
+    # implementations can decide how to handle a missing key.
+    from opengateway.mojo_bridge.routing import (
+        _PROVIDER_MODULE_TO_SETTINGS_API_KEY,
+        resolve_provider_api_key,
+    )
+
+    if resolved_primary in _PROVIDER_MODULE_TO_SETTINGS_API_KEY and not resolve_provider_api_key(
+        resolved_primary
+    ):
+        raise RuntimeError(f"no API key configured for provider {resolved_primary}")
+
+    fallback_module = (
+        _routing_module_name(route.fallback)
+        if route is not None and route.fallback
+        else None
+    )
+    if (
+        fallback_module is not None
+        and fallback_module in _PROVIDER_MODULE_TO_SETTINGS_API_KEY
+        and not resolve_provider_api_key(fallback_module)
+    ):
+        raise RuntimeError(f"no API key configured for fallback provider {fallback_module}")
 
     handle = StreamHandle(
         body,
-        provider_module,
-        api_key,
-        base_url=_resolve_provider_base_url(settings, body["model"]),
+        primary_module=resolved_primary,
+        fallback_module=fallback_module,
         key_id=auth.key_id,
     )
     handle.start()
     return {"status": 200, "handle": handle}
+
+
+def _routing_module_name(provider: str) -> str:
+    if "." in provider:
+        return provider
+    return f"opengateway.providers.{provider}"

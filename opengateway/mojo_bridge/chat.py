@@ -6,14 +6,17 @@ dict that the Mojo handler passes back through the bridge envelope.
 
 from __future__ import annotations
 
-import asyncio
 import importlib
 import logging
 from typing import Any
 
-from opengateway.config import get_settings
 from opengateway.mojo_bridge.auth import AuthResult, authenticate_authorization
 from opengateway.mojo_bridge.db import record_usage_for
+from opengateway.mojo_bridge.routing import (
+    chat_with_fallback,
+    estimate_request_cost_usd,
+    resolve_route,
+)
 from opengateway.providers.base import ChatRequest
 
 logger = logging.getLogger("opengateway.mojo_bridge.chat")
@@ -46,34 +49,56 @@ def chat_completion(
     """
     auth = authenticate_authorization(authorization)
     _validate_request(body)
+    route, resolved_primary = resolve_route(body["model"], default_module=provider_module)
     _enforce_model_access(auth, body["model"])
     _enforce_budget(auth)
+    _enforce_cost_cap(auth, route, body)
     _enforce_rate_limit(auth)
 
-    result = asyncio.run(_run_completion(body, provider_module))
+    fallback_module = (
+        _module_name_for(route.fallback)
+        if route is not None and route.fallback
+        else None
+    )
+    result, used_module = _run_with_fallback(
+        body,
+        primary_module=resolved_primary,
+        fallback_module=fallback_module,
+    )
+    if used_module != resolved_primary and route is not None:
+        logger.info(
+            "chat served by fallback provider",
+            extra={"model": body["model"], "fallback": used_module},
+        )
     usage = result.get("usage") or {}
     record_usage_for(auth.key_id, int(usage.get("total_tokens", 0)))
     return result
 
 
-async def _run_completion(body: dict[str, Any], provider_module: str) -> dict[str, Any]:
-    settings = get_settings()
-    api_key = _resolve_provider_api_key(settings, body["model"])
-    if not api_key:
-        raise RuntimeError(f"no API key configured for model {body['model']}")
+def _run_with_fallback(
+    body: dict[str, Any],
+    *,
+    primary_module: str,
+    fallback_module: str | None,
+) -> tuple[dict[str, Any], str]:
+    """Drive the async fallback helper from a sync entry point.
 
-    provider_cls = _load_provider_class(provider_module)
-    provider = provider_cls(
-        api_key=api_key,
-        base_url=_resolve_provider_base_url(settings, body["model"]),
+    ``chat_with_fallback`` is async to give the streaming path a single
+    shared abstraction; this thin wrapper is the sync-side adapter.
+    """
+    import asyncio
+
+    return asyncio.run(
+        chat_with_fallback(
+            body, primary_module=primary_module, fallback_module=fallback_module
+        )
     )
-    try:
-        request = _to_chat_request(body)
-        response = await provider.chat(request)
-    finally:
-        await provider.close()
 
-    return _to_openai_response(response)
+
+def _module_name_for(provider: str) -> str:
+    if "." in provider:
+        return provider
+    return f"opengateway.providers.{provider}"
 
 
 def _validate_request(body: dict[str, Any]) -> None:
@@ -91,8 +116,30 @@ def _enforce_model_access(auth: AuthResult, model: str) -> None:
 
 
 def _enforce_budget(auth: AuthResult) -> None:
+    """Token-denominated budget check (ADR-003 §166)."""
     if auth.max_budget is not None and auth.budget_used >= auth.max_budget:
         raise PermissionError("budget exceeded")
+
+
+def _enforce_cost_cap(auth: AuthResult, route: Any, body: dict[str, Any]) -> None:
+    """Per-key dollar cost cap (issue #4).
+
+    Skipped when no route is configured (legacy prefix-based routing
+    has no pricing data) or when the key has no cap. Over-estimation
+    is the right bias here — better to reject than to overspend.
+
+    The raised message contains the word ``budget`` so the bridge's
+    exception mapper routes it to HTTP 429 / ``rate_limit_error``,
+    matching the token-budget rejection shape.
+    """
+    if auth.max_cost_usd is None or route is None:
+        return
+    estimated = estimate_request_cost_usd(route, body)
+    if estimated > auth.max_cost_usd:
+        raise PermissionError(
+            f"cost budget exceeded: estimated ${estimated:.4f} > "
+            f"max_cost_usd ${auth.max_cost_usd:.4f}"
+        )
 
 
 def _enforce_rate_limit(auth: AuthResult) -> None:
@@ -151,27 +198,21 @@ def _to_openai_response(response: Any) -> dict[str, Any]:
     }
 
 
-def _resolve_provider_api_key(settings: Any, model: str) -> str | None:
-    if model.startswith("gpt-") or model.startswith("openai/"):
-        return settings.openai_api_key or None
-    if model.startswith("claude-") or model.startswith("anthropic/"):
-        return settings.anthropic_api_key or None
-    return settings.openai_api_key or None
+def _resolve_provider_api_key(provider_module: str) -> str | None:
+    """Return the configured API key for ``provider_module``.
 
-
-def _resolve_provider_base_url(settings: Any, model: str) -> str | None:
-    """Resolve the optional provider base-URL override.
-
-    ``None`` means the provider adapter uses its compiled-in default
-    (e.g. ``https://api.openai.com/v1``). Every ``BaseProvider``
-    constructor accepts ``base_url=None`` and falls back to its own
-    default, so passing the unresolved value through is safe.
+    Centralised in ``routing`` so the streaming path uses the same
+    lookup. Kept here as a thin alias for the helpers below.
     """
-    if model.startswith("gpt-") or model.startswith("openai/"):
-        return settings.openai_base_url or None
-    if model.startswith("claude-") or model.startswith("anthropic/"):
-        return settings.anthropic_base_url or None
-    return None
+    from opengateway.mojo_bridge.routing import resolve_provider_api_key
+
+    return resolve_provider_api_key(provider_module)
+
+
+def _resolve_provider_base_url(provider_module: str) -> str | None:
+    from opengateway.mojo_bridge.routing import resolve_provider_base_url
+
+    return resolve_provider_base_url(provider_module)
 
 
 def _load_provider_class(provider_module: str) -> Any:
