@@ -18,6 +18,32 @@ jobs:
     name: Release Please
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Compute next calver version
+        id: calver
+        run: |
+          set -euo pipefail
+          # Find the most recent calver tag (matching vYYYY.M.PATCH).
+          PREV=$(git describe --tags --match 'v20*' --abbrev=0 2>/dev/null || true)
+          TODAY_YM=$(date -u +'%Y.%-m')
+          if [[ "$PREV" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            PREV_YM="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+            PREV_PATCH="${BASH_REMATCH[3]}"
+            if [ "$PREV_YM" = "$TODAY_YM" ]; then
+              NEXT_PATCH=$((10#$PREV_PATCH + 1))
+            else
+              NEXT_PATCH=1
+            fi
+          else
+            NEXT_PATCH=1
+          fi
+          NEXT="${TODAY_YM}.${NEXT_PATCH}"
+          echo "version=${NEXT}" >> "$GITHUB_OUTPUT"
+          echo "Next calver: ${NEXT}"
+
       - id: release
         uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         with:
@@ -25,10 +51,9 @@ jobs:
           release-type: python
           package-name: opengateway
           changelog-path: CHANGELOG.md
-          bump-minor-pre-major: true
-          bump-patch-for-minor-pre-major: false
           default-branch: main
           include-component-in-tag: false
+          release-as: ${{ steps.calver.outputs.version }}
 
       - name: Publish to PyPI (on release)
         if: steps.release.outputs.release_created == 'true'
