@@ -56,9 +56,7 @@ def chat_completion(
     _enforce_rate_limit(auth)
 
     fallback_module = (
-        _module_name_for(route.fallback)
-        if route is not None and route.fallback
-        else None
+        _module_name_for(route.fallback) if route is not None and route.fallback else None
     )
     result, used_module = _run_with_fallback(
         body,
@@ -89,9 +87,7 @@ def _run_with_fallback(
     import asyncio
 
     return asyncio.run(
-        chat_with_fallback(
-            body, primary_module=primary_module, fallback_module=fallback_module
-        )
+        chat_with_fallback(body, primary_module=primary_module, fallback_module=fallback_module)
     )
 
 

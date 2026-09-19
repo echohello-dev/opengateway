@@ -243,9 +243,7 @@ def start_streaming_chat(
         raise RuntimeError(f"no API key configured for provider {resolved_primary}")
 
     fallback_module = (
-        _routing_module_name(route.fallback)
-        if route is not None and route.fallback
-        else None
+        _routing_module_name(route.fallback) if route is not None and route.fallback else None
     )
     if (
         fallback_module is not None

@@ -85,9 +85,7 @@ def test_cost_cap_rejects_when_estimate_exceeds_limit(
     _set_routes(monkeypatch)
     monkeypatch.setenv("ROOT_KEY", "sk-root-good")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
-    store = _FakeStore(
-        {_hash_key("sk-og-tenant"): _fake_record(max_cost_usd=0.01)}
-    )
+    store = _FakeStore({_hash_key("sk-og-tenant"): _fake_record(max_cost_usd=0.01)})
     monkeypatch.setattr("opengateway.mojo_bridge.db.get_store", lambda: store)
 
     envelope = handle_chat(
@@ -165,9 +163,7 @@ def test_cost_cap_skipped_when_no_route_configured(
     monkeypatch.setenv("ROOT_KEY", "sk-root-good")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     monkeypatch.delenv("ROUTES_JSON", raising=False)
-    store = _FakeStore(
-        {_hash_key("sk-og-tenant"): _fake_record(max_cost_usd=0.0001)}
-    )
+    store = _FakeStore({_hash_key("sk-og-tenant"): _fake_record(max_cost_usd=0.0001)})
     monkeypatch.setattr("opengateway.mojo_bridge.db.get_store", lambda: store)
 
     envelope = handle_chat(
@@ -214,9 +210,7 @@ def test_cost_cap_enforced_on_streaming_too(
     _set_routes(monkeypatch)
     monkeypatch.setenv("ROOT_KEY", "sk-root-good")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
-    store = _FakeStore(
-        {_hash_key("sk-og-tenant"): _fake_record(max_cost_usd=0.01)}
-    )
+    store = _FakeStore({_hash_key("sk-og-tenant"): _fake_record(max_cost_usd=0.01)})
     monkeypatch.setattr("opengateway.mojo_bridge.db.get_store", lambda: store)
 
     envelope = handle_chat_stream(
