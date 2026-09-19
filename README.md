@@ -198,6 +198,59 @@ OpenGateway is a drop-in replacement for any OpenAI-compatible client. Tested wi
 
 ---
 
+## Routing, Cost Caps, and Fallbacks
+
+Three layered controls for traffic shape. All opt-in: with no `ROUTES_JSON` set, the bridge behaves identically to a pre-routing-table install.
+
+### Routing table (`ROUTES_JSON`)
+
+Pin a model to a primary provider with optional fallback, plus pricing for the cost cap:
+
+```bash
+ROUTES_JSON='[
+  {
+    "model": "gpt-4o-mini",
+    "primary": "openai",
+    "input_price_per_1k": 0.00015,
+    "output_price_per_1k": 0.0006,
+    "max_output_tokens": 16384
+  },
+  {
+    "model": "gpt-4o",
+    "primary": "openai",
+    "fallback": "anthropic",
+    "input_price_per_1k": 0.0025,
+    "output_price_per_1k": 0.01,
+    "max_output_tokens": 4096
+  }
+]'
+```
+
+- `model`: exact match against the request body.
+- `primary` / `fallback`: short provider name (`openai`, `anthropic`) or full module path (`opengateway.providers.openai`).
+- Pricing fields are USD per 1k tokens. They drive the per-key `max_cost_usd` cap (below); if unset, the cap is not enforced.
+- `max_output_tokens`: ceiling used when the request omits `max_tokens`. Caps the worst-case completion cost.
+
+When `ROUTES_JSON` is unset, the bridge falls through to the legacy prefix-based routing (`gpt-*` → OpenAI, `claude-*` → Anthropic, `bedrock/*` → Bedrock). Drift between the Python bridge and the Mojo router is guarded by `tests/test_mojo_bridge.py::test_routing_rules_match_mojo_router`.
+
+### Per-key USD cost cap
+
+Set `max_cost_usd` on a virtual key (column added to the `virtual_keys` table). The bridge estimates the upstream cost of each request before calling the provider:
+
+```
+estimate = prompt_chars / 4 × input_price + max_tokens × output_price
+```
+
+When `budget_used + estimate > max_cost_usd`, the request is rejected with `429 rate_limit_error` before any upstream call. Over-estimation is the right bias for a cap. The cap is independent from the token-denominated `max_budget` field (ADR-003 §166) — set both, set either, set neither.
+
+### Provider fallback
+
+When the primary provider returns a retryable failure (`5xx`, `429`, connection / timeout), the bridge retries the request against `fallback` once. Non-retryable failures (4xx other than 429) surface immediately — the request is broken, not the provider.
+
+Streaming falls back only before the first frame is queued. Mid-stream errors log a warning and emit the canonical `[DONE]` terminator; the client sees a clean stream end, not a silent provider swap mid-flight.
+
+---
+
 ## Configuration
 
 Everything is environment variables or `.env`:
@@ -207,6 +260,7 @@ Everything is environment variables or `.env`:
 | `ROOT_KEY` | `sk-root-change-me` | Admin key with full access. **Replace before deploying.** |
 | `OPENAI_API_KEY` | _(unset)_ | Upstream key for `gpt-*` and `openai/*`. |
 | `ANTHROPIC_API_KEY` | _(unset)_ | Upstream key for `claude-*` and `anthropic/*`. |
+| `ROUTES_JSON` | _(unset)_ | JSON array of `RouteRule` objects — see [Routing, Cost Caps, and Fallbacks](#routing-cost-caps-and-fallbacks). |
 | `DATABASE_URL` | `postgresql://...` | Tenants, keys, audit logs. |
 | `REDIS_URL` | `redis://...` | Rate limits and short-lived caches. |
 | `HOST` | `0.0.0.0` | Bind address. |
@@ -274,12 +328,13 @@ opengateway/
 ├── opengateway/
 │   ├── main.py              # FastAPI server (opt-in dev path)
 │   ├── auth.py              # Virtual key + root key auth
-│   ├── config.py            # Settings via pydantic-settings
+│   ├── config.py            # Settings via pydantic-settings (RouteRule, ROUTES_JSON)
 │   ├── keys.py              # API key generator (sk-og-{token})
 │   ├── router.py            # Model-to-provider routing (Python)
 │   ├── providers/           # Provider adapters (called by the bridge)
 │   │   ├── base.py
-│   │   └── openai.py
+│   │   ├── openai.py
+│   │   └── anthropic.py     # stub — falls back from OpenAI when configured
 │   ├── mojo/                # Mojo server on flare — default deployment
 │   │   ├── main.mojo        # flare HTTP server + middleware stack
 │   │   ├── router.mojo      # Model -> provider module routing
@@ -287,10 +342,16 @@ opengateway/
 │   │   └── __init__.mojo
 │   └── mojo_bridge/         # Python side of the Mojo bridge
 │       ├── auth.py
-│       └── chat.py
+│       ├── chat.py
+│       ├── stream.py
+│       ├── db.py            # Postgres virtual key store
+│       ├── ratelimit.py     # Redis sliding-window rate limiter
+│       └── routing.py       # ROUTES_JSON resolution + fallback orchestration
 ├── tests/
-│   ├── test_proxy.py        # FastAPI server tests (still in-tree)
-│   └── test_mojo_bridge.py  # Bridge tests + router drift guard
+│   ├── test_proxy.py            # FastAPI server tests (still in-tree)
+│   ├── test_mojo_bridge.py      # Bridge tests + router drift guard
+│   ├── test_cost_cap.py         # per-key max_cost_usd enforcement
+│   └── test_provider_fallback.py # retryable-failure fallback
 ├── docs/                    # Documentation
 │   ├── architecture.md
 │   ├── release-process.md
@@ -312,7 +373,7 @@ A few principles we hold ourselves to. They're non-negotiable.
 2. **OpenAI-compatible is the API contract.** Not "compatible-ish". Not "subset". The same request shape, the same response shape, the same error format.
 3. **Boring tech where it matters.** FastAPI, Postgres, Redis, Pydantic. We don't get bonus points for picking weird.
 4. **New tech where it pays off.** Mojo for the binary-deploy path. Conventional commits for release automation. Standard formats everywhere else.
-5. **Tests in CI, not in promises.** 23 Python tests today, more every week. No `// TODO: test this later` in main.
+5. **Tests in CI, not in promises.** 56 Python tests today, more every week. No `// TODO: test this later` in main.
 6. **The README is a contract.** If it doesn't run as written, the docs are wrong, not the code.
 
 ---
@@ -323,23 +384,28 @@ Shipped today:
 
 - [x] OpenAI-compatible `/v1/chat/completions`
 - [x] Virtual keys with model allow-lists
-- [x] Per-key budgets
+- [x] Per-key token budgets (`max_budget`) and USD cost caps (`max_cost_usd`)
+- [x] Routing table with primary + fallback providers (`ROUTES_JSON`)
+- [x] Single-hop provider fallback on retryable failures
 - [x] OpenAI provider adapter
 - [x] Dual server: FastAPI + Mojo on flare
-- [x] release-please to PyPI publishing
+- [x] Streaming SSE in the Mojo server
+- [x] Prometheus metrics endpoint at `/metrics`
+- [x] Per-key Redis-backed rate limiting (sliding window)
+- [x] PostgreSQL-backed virtual keys (in-memory fallback when `DATABASE_URL` unset)
+- [x] release-please to PyPI publishing (calver `YYYY.M.PATCH`)
+- [x] In-binary TLS termination via flare's reactor (`TLS_CERT_FILE`, `TLS_KEY_FILE`)
 - [x] Drop-in replacement for openai-python, openai-node, and Anthropic SDKs
 
 Next up:
 
-- [ ] **Anthropic provider** adapter plus Bedrock pass-through
-- [ ] **PostgreSQL-backed virtual keys** (currently in-memory)
-- [x] **Streaming SSE in the Mojo server**
+- [ ] **Anthropic provider** adapter (currently a stub; routed via `fallback: anthropic`)
+- [ ] **Bedrock pass-through** adapter
 - [ ] **Guardrails**: PII detection, prompt injection, content moderation
 - [ ] **Audit log**: structured events, queryable
 - [ ] **SSO**: OIDC + SAML
-- [ ] **Rate limits**: token-bucket per key, Redis-backed
 - [ ] **Adaptive routing**: score-based provider selection
-- [ ] **Native Prometheus metrics** endpoint
+- [ ] **HTTP/3** over QUIC (blocked on upstream flare reactor integration)
 
 Long term:
 
