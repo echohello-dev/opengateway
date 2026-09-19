@@ -115,3 +115,36 @@ jobs:
       - name: Test
         working-directory: opengateway/mojo
         run: pixi run -e mojo mojo run test_router.mojo 2>&1 | tail -30 || true
+
+  # Convergence job — the single required status check on the main
+  # branch. Waits for the full Python matrix and treats Mojo as
+  # informational (its steps use ``continue-on-error: true`` since the
+  # Mojo toolchain is nightly-quality). PR branch protection rules
+  # (see repository ruleset) key off this job's name so reviewers see
+  # one green tick rather than nine.
+  ci:
+    name: CI
+    runs-on: ubuntu-latest
+    needs: [python, mojo]
+    if: always()
+    steps:
+      - name: Python matrix result
+        run: |
+          result="${{ needs.python.result }}"
+          echo "Python matrix result: $result"
+          if [ "$result" != "success" ]; then
+            echo "::error::Python matrix did not succeed (result=$result)."
+            exit 1
+          fi
+
+      - name: Mojo result (informational)
+        run: |
+          result="${{ needs.mojo.result }}"
+          echo "Mojo job result: $result"
+          # Mojo is nightly-quality: failures are warnings, not
+          # blockers. The status check stays green so the ruleset
+          # passes; reviewers see Mojo's individual job status on the
+          # PR for the real signal.
+          if [ "$result" != "success" ] && [ "$result" != "skipped" ]; then
+            echo "::warning::Mojo job did not succeed (result=$result); continuing because Mojo is informational."
+          fi
