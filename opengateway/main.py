@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict
 from opengateway.auth import AuthService, VirtualKey
 from opengateway.config import get_settings
 from opengateway.providers.base import ChatRequest
-from opengateway.router import Router
+from opengateway.router import ProviderNotConfiguredError, Router
 
 
 class ChatCompletionRequest(BaseModel):
@@ -70,7 +70,10 @@ async def chat_completions(
     if not virtual_key.is_within_budget():
         raise HTTPException(status_code=429, detail="Budget exceeded")
 
-    provider = router.select_provider(body.model)
+    try:
+        provider = router.select_provider(body.model)
+    except ProviderNotConfiguredError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     if provider is None:
         raise HTTPException(status_code=400, detail=f"Unknown model: {body.model}")
 
