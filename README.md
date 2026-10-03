@@ -85,6 +85,29 @@ $ curl -s -X POST http://localhost:8080/v1/chat/completions \
 
 ---
 
+### Demo without an API key (mock upstream)
+
+No OpenAI key? The repo ships a mock SSE upstream so the full path
+(gateway → provider → streaming client) runs offline:
+
+```bash
+$ python tests/mock_upstream.py 9100 &
+mock upstream on 127.0.0.1:9100
+```
+
+Then set these in `.env` instead of a real key:
+
+```bash
+OPENAI_API_KEY=sk-mock-local
+OPENAI_BASE_URL=http://127.0.0.1:9100/v1
+```
+
+Restart the gateway and hit `/v1/chat/completions` as above — the mock
+replies `"Hello, streaming world!"`, or four SSE frames when
+`"stream": true`. Works with both servers.
+
+---
+
 ### TLS termination (in-binary)
 
 Set `TLS_CERT_FILE` and `TLS_KEY_FILE` (PEM-encoded) to terminate TLS
