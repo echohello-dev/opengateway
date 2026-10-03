@@ -172,4 +172,7 @@ dist-mojo/
 # Personal research notes (not shipped with the project)
 .tmp/
 
+# Browser MCP screenshots/logs
+.playwright-mcp/
+
 uv.lock
