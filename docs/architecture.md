@@ -10,38 +10,14 @@ them.
 
 ## High-level request flow
 
-```
-                            ┌─────────────────────┐
-   OpenAI-compatible client │  POST /v1/chat/...  │
-   (curl, openai-python,    │  Bearer <virtual    │
-    SDK, internal app) ────►│  key>               │
-                            └─────────┬───────────┘
-                                      │
-                ┌─────────────────────┴─────────────────────┐
-                │                                           │
-        ┌───────▼────────┐                         ┌───────▼────────┐
-        │  FastAPI app   │                         │  flare server  │
-        │  (opengateway  │                         │  (opengateway  │
-        │   .main)       │                         │   .mojo.main)  │
-        │                │                         │                │
-        │  Python,       │                         │  Mojo, static  │
-        │  uvicorn,      │                         │  binary or     │
-        │  asyncio       │                         │  pixi run      │
-        └───────┬────────┘                         └───────┬────────┘
-                │                                           │
-                │      ┌────────────────────────────────┐   │
-                └─────►│  opengateway.providers.*       │◄──┘
-                       │  (Python adapters, async)       │
-                       │  - openai.py  (existing)       │
-                       │  - anthropic.py (planned)      │
-                       │  - bedrock.py  (planned)       │
-                       └────────────────┬───────────────┘
-                                        │
-                              ┌─────────▼──────────┐
-                              │  Upstream LLM API  │
-                              │  (OpenAI / Anthrop │
-                              │   ic / Bedrock...) │
-                              └────────────────────┘
+```mermaid
+flowchart TD
+    client["OpenAI-compatible client<br/>curl, openai-python, SDK, internal app"]
+    client -->|"POST /v1/chat/completions<br/>Bearer sk-og-token"| fastapi["FastAPI app<br/>opengateway.main<br/>Python, uvicorn, asyncio"]
+    client -->|"POST /v1/chat/completions<br/>Bearer sk-og-token"| flare["flare server<br/>opengateway.mojo.main<br/>Mojo, static binary or pixi run"]
+    fastapi --> providers["opengateway.providers.*<br/>Python adapters, async<br/>openai.py shipped<br/>anthropic.py, bedrock.py planned"]
+    flare --> providers
+    providers --> upstream["Upstream LLM API<br/>OpenAI / Anthropic / Bedrock"]
 ```
 
 Both servers implement the same endpoint contract, share the same
@@ -109,25 +85,18 @@ Python (`bridge_module.handle_chat(payload, auth_header, provider_module)`).
 It returns an envelope dict `{"status": <int>, "body": <json str>}`
 so the Mojo handler never has to catch Python exceptions itself.
 
-```
-Mojo handler                          Python bridge
-─────────────                         ──────────────
-chat_completions(req)                 handle_chat(body, auth, module)
-  │                                     │
-  │ req.text()                          │ authenticate_authorization()
-  │ req.headers.get("authorization")    │ _validate_request(body)
-  │                                     │ _enforce_model_access(...)
-  │                                     │ _enforce_budget(...)
-  │                                     │ asyncio.run(_run_completion(...))
-  │                                     │   └─► provider.chat(...)
-  │                                     │
-  │ json_loads(body_text)               │
-  │ bridge.handle_chat(payload, ...)    │
-  │                                     │
-  │ ◄──────────── envelope dict ────────│
-  │
-  ▼
-ok_json(body_json)
+```mermaid
+sequenceDiagram
+    participant M as Mojo handler
+    participant P as Python bridge
+    M->>M: req.text() and headers.get("authorization")
+    M->>P: handle_chat(payload, auth_header, provider_module)
+    Note over P: authenticate_authorization()
+    Note over P: _validate_request(body)
+    Note over P: _enforce_model_access(...) and _enforce_budget(...)
+    Note over P: asyncio.run(_run_completion(...)) calls provider.chat(...)
+    P-->>M: envelope dict with status and body
+    M->>M: json_loads(body_text), ok_json(body_json)
 ```
 
 The Mojo layer never calls `httpx`, `asyncpg`, or any async Python
@@ -185,46 +154,12 @@ two servers.
 
 ## Deployment shapes
 
-```
-┌────────────────────────────┐
-│ Local dev (Python default) │
-│                            │
-│   uv run opengateway       │
-│   (uses opengateway.main   │
-│    FastAPI app on :8080)   │
-└────────────────────────────┘
-
-┌────────────────────────────┐
-│ Edge / serverless          │
-│                            │
-│   pixi run -e mojo mojo    │
-│     build main.mojo -O3    │
-│   ./main                   │
-│   (static binary, no venv, │
-│    15–80 MB)               │
-└────────────────────────────┘
-
-┌────────────────────────────┐
-│ Docker (default)           │
-│                            │
-│   docker compose up        │
-│   (FastAPI + Postgres +    │
-│    Redis via Compose)      │
-└────────────────────────────┘
-
-┌────────────────────────────┐
-│ Docker (Mojo variant)      │
-│                            │
-│   pixi run -e mojo mojo    │
-│     build main.mojo        │
-│   docker build -f          │
-│     Dockerfile.mojo .      │
-│   (multi-stage:           │
-│    modular image → static  │
-│    binary → distroless     │
-│    final image, ~30 MB)    │
-└────────────────────────────┘
-```
+| Shape | Command | Notes |
+|---|---|---|
+| **Local dev (Python default)** | `uv run opengateway` | FastAPI app on :8080 |
+| **Edge / serverless** | `pixi run -e mojo mojo build main.mojo -O3` then `./main` | Static binary, no venv, 15-80 MB |
+| **Docker (default)** | `docker compose up` | FastAPI + Postgres + Redis via Compose |
+| **Docker (Mojo variant)** | `pixi run -e mojo mojo build main.mojo` then `docker build -f Dockerfile.mojo .` | Multi-stage: modular image to static binary to distroless, ~30 MB |
 
 See `docs/release-process.md` for the full release flow and
 `docs/mojo-python-ai-gateway.md` for the design rationale.

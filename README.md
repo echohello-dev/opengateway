@@ -152,39 +152,13 @@ Every OpenAI SDK works without modification. Anthropic, Google GenAI, LiteLLM, a
 
 ## Architecture
 
-```
-   OpenAI-compatible client
-            │
-            ▼
-   ┌────────────────────┐
-   │  HTTP API surface  │   ← flare  (Mojo,   default)
-   │                    │     OR FastAPI (Python, opt-in)
-   └─────────┬──────────┘
-             │
-             ▼
-   ┌────────────────────┐
-   │  PythonObject      │   ← only in the Mojo path
-   │  bridge            │
-   └─────────┬──────────┘
-             │
-            ═╪═  single sync function call, returns envelope
-            ═╪═
-             │
-             ▼
-   ┌────────────────────┐
-   │  Python business   │   ← auth, validation, provider dispatch
-   │  logic             │
-   └─────────┬──────────┘
-             │
-             ▼
-   ┌────────────────────┐
-   │  Provider adapters │   ← opengateway/providers/{openai,anthropic,bedrock,...}.py
-   └─────────┬──────────┘
-             │
-             ▼
-   ┌────────────────────┐
-   │  Upstream LLM API  │   ← OpenAI / Anthropic / Bedrock / ...
-   └────────────────────┘
+```mermaid
+flowchart TD
+    client["OpenAI-compatible client"] --> api["HTTP API surface<br/>flare on Mojo, default<br/>or FastAPI, Python, opt-in"]
+    api --> bridge["PythonObject bridge<br/>only in the Mojo path"]
+    bridge -->|"single sync function call<br/>returns envelope dict"| logic["Python business logic<br/>auth, validation, provider dispatch"]
+    logic --> adapters["Provider adapters<br/>opengateway/providers/{openai,anthropic,bedrock,...}.py"]
+    adapters --> upstream["Upstream LLM API<br/>OpenAI / Anthropic / Bedrock / ..."]
 ```
 
 **Mojo on flare** is the default. Single static binary, sub-50 ms cold start, ~30 MB image, no `pip install` in your container. It hosts the entire HTTP surface natively: routing, middleware, SSE, request-id propagation, structured logging, panic safety, graceful drain. **FastAPI** stays in-tree as the Python-only dev path for local iteration on the bridge or when you need a debugger attached to the Python stack.
