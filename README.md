@@ -34,7 +34,7 @@ Every AI gateway on the market takes the same bet: **lock the good stuff behind 
 
 LiteLLM charges for SSO and audit logs. Bifrost gates guardrails and clustering behind enterprise. **OpenGateway gives you everything in the OSS build**, funded by managed hosting and support, the same model Red Hat used with Backstage.
 
-> "Bifrost is Go. OpenGateway is Python/Mojo, easier to customise." internal positioning line.
+> "Bifrost is Go. OpenGateway is Python/Mojo — easier to customise."
 
 And unlike every other Python AI gateway, OpenGateway ships a **second server on Mojo + [flare](https://github.com/ehsanmok/flare)** for when you want a single static binary at the edge.
 
@@ -380,7 +380,9 @@ opengateway/
 ├── docs/                    # Documentation
 │   ├── architecture.md
 │   ├── release-process.md
-│   └── assets/              # Banner image and other assets
+│   └── assets/              # Banner, logo, and brand assets
+│       ├── banner.png       # README hero (generated from logo-explore/banner.svg)
+│       └── logo-explore/    # Logo mark, wordmark lockups, banner source, motion suite
 ├── adr/                     # Architecture Decision Records
 ├── pyproject.toml           # Python package config
 ├── pixi.toml                # Mojo environment config
@@ -398,7 +400,7 @@ A few principles we hold ourselves to. They're non-negotiable.
 2. **OpenAI-compatible is the API contract.** Not "compatible-ish". Not "subset". The same request shape, the same response shape, the same error format.
 3. **Boring tech where it matters.** FastAPI, Postgres, Redis, Pydantic. We don't get bonus points for picking weird.
 4. **New tech where it pays off.** Mojo for the binary-deploy path. Conventional commits for release automation. Standard formats everywhere else.
-5. **Tests in CI, not in promises.** 56 Python tests today, more every week. No `// TODO: test this later` in main.
+5. **Tests in CI, not in promises.** 60 Python tests today, more every week. No `// TODO: test this later` in main.
 6. **The README is a contract.** If it doesn't run as written, the docs are wrong, not the code.
 
 ---
@@ -446,6 +448,7 @@ Long term:
 | [docs/architecture.md](docs/architecture.md) | Runtime layout, dual-server design, Mojo to Python boundary |
 | [docs/release-process.md](docs/release-process.md) | release-please flow, conventional commits, PyPI trusted publisher |
 | [docs/mojo-python-ai-gateway.md](docs/mojo-python-ai-gateway.md) | Original design sketch (historical rationale) |
+| [docs/assets/logo-explore](docs/assets/logo-explore/) | Brand assets: mark and lockup SVGs, banner source, logo animation |
 | [adr/001-api-key-format.md](adr/001-api-key-format.md) | The `sk-og-{token}` key format |
 | [adr/002-mojo-api-surface.md](adr/002-mojo-api-surface.md) | Why Mojo for the API surface |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Dev setup, commit conventions, PR process |
@@ -475,7 +478,7 @@ make mojo-test      # Mojo router tests (requires pixi)
 
 ## Project Status
 
-**Alpha (0.x).** The core proxy works end-to-end with the OpenAI provider. Anthropic and Bedrock adapters are routed but not yet implemented. Virtual keys and budgets are scaffolded. DB-backed persistence is the next milestone. Expect breaking changes before 1.0.
+**Alpha (0.x).** The core proxy works end-to-end with the OpenAI provider. Anthropic and Bedrock adapters are routed but not yet implemented. Virtual keys, budgets, and Postgres-backed persistence ship today (in-memory fallback when `DATABASE_URL` is unset). Expect breaking changes before 1.0.
 
 Watch [releases](https://github.com/echohello-dev/opengateway/releases) for tagged versions, and check the [open issues](https://github.com/echohello-dev/opengateway/issues) for the current roadmap.
 
