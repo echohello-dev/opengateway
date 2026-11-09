@@ -1,8 +1,6 @@
 <div align="center">
 
-<img src="docs/assets/banner.png" alt="OpenGateway, the AI gateway that doesn't paywall the features" width="100%">
-
-<img src="docs/assets/logo-explore/logo.gif" alt="OpenGateway logo animation: a key unlocks the gate and the mark latches closed" width="150">
+<img src="docs/assets/banner.gif" alt="OpenGateway, the AI gateway that doesn't paywall the features" width="100%">
 
 **The fastest way to add SSO, audit logs, guardrails, and routing to any AI app.**
 
