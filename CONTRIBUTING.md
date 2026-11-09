@@ -46,8 +46,8 @@ pixi run -e mojo mojo run opengateway/mojo/main.mojo
 
 OpenGateway ships **two HTTP servers** that implement the same OpenAI-compatible contract:
 
-1. **FastAPI server** (`opengateway/main.py`) — default, Python, asyncio.
-2. **Mojo + flare server** (`opengateway/mojo/main.mojo`) — opt-in, Mojo, static binary.
+1. **Mojo + flare server** (`opengateway/mojo/main.mojo`), default, Mojo, static binary.
+2. **FastAPI server** (`opengateway/main.py`), opt-in dev path, Python, asyncio.
 
 Both delegate provider calls to the same Python adapters
 (`opengateway/providers/`). The Mojo server uses the PythonObject
@@ -63,6 +63,41 @@ When adding a new feature:
 See [docs/architecture.md](docs/architecture.md) and
 [ADR-002](adr/002-mojo-api-surface.md) for the full layering
 rationale.
+
+### Repository layout
+
+```
+opengateway/
+├── opengateway/
+│   ├── main.py              # FastAPI server (opt-in dev path)
+│   ├── auth.py              # Virtual key + root key auth
+│   ├── config.py            # Settings via pydantic-settings (RouteRule, ROUTES_JSON)
+│   ├── keys.py              # API key generator (sk-og-{token})
+│   ├── router.py            # Model-to-provider routing (Python)
+│   ├── providers/           # Provider adapters (called by the bridge)
+│   │   ├── base.py
+│   │   ├── openai.py
+│   │   └── anthropic.py     # stub, falls back from OpenAI when configured
+│   ├── mojo/                # Mojo server on flare, default deployment
+│   │   ├── main.mojo        # flare HTTP server + middleware stack
+│   │   ├── router.mojo      # Model to provider module routing
+│   │   ├── test_router.mojo
+│   │   └── __init__.mojo
+│   └── mojo_bridge/         # Python side of the Mojo bridge
+│       ├── auth.py
+│       ├── chat.py
+│       ├── stream.py
+│       ├── db.py            # Postgres virtual key store
+│       ├── ratelimit.py     # Redis sliding-window rate limiter
+│       └── routing.py       # ROUTES_JSON resolution + fallback orchestration
+├── tests/                   # pytest suite + mock_upstream.py
+├── docs/                    # architecture.md, configuration.md, release-process.md
+├── adr/                     # Architecture Decision Records
+├── pyproject.toml           # Python package config
+├── pixi.toml                # Mojo environment config
+├── Dockerfile               # Container build
+└── docker-compose.yml       # Local dev stack (Postgres + Redis + gateway)
+```
 
 ## Pull Request Process
 
