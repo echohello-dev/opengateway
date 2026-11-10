@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenGateway logo motion</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230B0B0C'/%3E%3Cpath d='M6.769 26.321V14.910a9.231 9.231 0 0 1 18.462 0V16.575' fill='none' stroke='%23EDEBE6' stroke-width='4.358' stroke-linecap='round'/%3E%3Ccircle cx='25.231' cy='24.974' r='3.526' fill='%23FF5A1F'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{--bg:#0B0B0C;--surface:#121214;--surface2:#19191C;--line:#2B2B30;--text:#EDEBE6;--text2:#A19E96;--text3:#85827A;--accent:#FF5A1F;--accent-soft:rgb(255 90 31/.14);--ok:#38C793}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 "Instrument Sans",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+h1,h2,p{margin:0}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.top{max-width:1180px;margin:0 auto;padding:32px 24px 8px;display:flex;flex-direction:column;gap:16px}
+.top h1{font-size:28px;font-weight:600;letter-spacing:-.02em}
+.top .rule{color:var(--text2);max-width:76ch}
+.top .rule b{color:var(--text);font-weight:600}
+.controls{display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--surface);position:sticky;top:0;z-index:2}
+.controls label{display:flex;gap:8px;align-items:center;color:var(--text2)}
+.btn{font:inherit;font-weight:500;color:var(--text);background:var(--surface2);border:1px solid var(--line);border-radius:6px;padding:6px 12px;cursor:pointer}
+.btn:hover{background:#212125}
+.btn[aria-pressed=true]{background:var(--accent);border-color:transparent;color:#140803}
+select,input[type=range]{font:inherit;color:var(--text);background:var(--surface2);border:1px solid var(--line);border-radius:6px;padding:5px 8px}
+input[type=range]{padding:0;accent-color:var(--accent)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.seg button{font:inherit;color:var(--text2);background:var(--surface2);border:0;padding:6px 12px;cursor:pointer}
+.seg button[aria-pressed=true]{background:#212125;color:var(--text)}
+.note{color:var(--text3);font-size:12px}
+main{max-width:1180px;margin:0 auto;padding:8px 24px 64px;display:flex;flex-direction:column;gap:32px}
+main h2.sec{font-size:18px;font-weight:600;letter-spacing:-.01em;margin-top:16px}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:12px}
+@media(max-width:860px){.grid{grid-template-columns:1fr}}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:16px;display:flex;flex-direction:column;gap:12px}
+.card header{display:flex;gap:8px;align-items:center}
+.card h2{font-size:15px;font-weight:600;flex:1}
+.chip{font-size:12px;font-weight:500;padding:2px 8px;border-radius:999px;background:#212125;color:var(--text2)}
+.chip.t-rare{background:var(--accent-soft);color:#FF7A45}
+.chip.t-event{background:rgb(242 185 59/.14);color:#F2B93B}
+.tiles{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.tile{border:1px solid var(--line);border-radius:6px;min-height:176px;display:grid;place-items:center;padding:16px}
+.tile.dark{--c:#EDEBE6;--o:#FF5A1F;background:#0B0B0C}
+.tile.light{--c:#151517;--o:#CC3A06;background:#F5F5F4;border-color:#DCDCD7}
+.svgm{height:128px;width:auto;display:block}
+.svgl{width:100%;max-width:300px;height:auto;display:block}
+.use,.snd{color:var(--text2);font-size:13px}.snd b{color:var(--text);font-weight:500}
+.card footer{display:flex;gap:12px;align-items:center;margin-top:auto}
+.meta{color:var(--text3);font-size:12px}
+body.rm svg *{animation:none!important}
+/* stage mode, used to capture video frames */
+body.stage{width:1280px;height:720px;margin:0;display:grid;place-items:center;overflow:hidden}
+body.stage.dark{--c:#EDEBE6;--o:#FF5A1F;background:#0B0B0C}
+body.stage.light{--c:#151517;--o:#CC3A06;background:#F5F5F4}
+body.stage .svgm{height:420px}body.stage .svgl{width:1000px;max-width:none}
+/*@CSS@*/
+</style>
+</head>
+<body data-face="instrument">
+<header class="top">
+  <h1>OpenGateway logo motion</h1>
+  <p class="rule"><b>In the product the logo stays still.</b> It is on screen all day, so it only moves on a first-run splash, a loading screen, a docs or release hero, and when a connection changes state. Sound is off until you enable it, plays once per moment, and is never attached to a loop. Everything here respects <b>prefers-reduced-motion</b> by showing the static mark.</p>
+  <div class="controls" role="group" aria-label="Preview controls">
+    <button class="btn" id="snd" type="button" aria-pressed="false">Enable sound</button>
+    <label>Volume <input id="vol" type="range" min="0" max="1" step="0.05" value="0.6" aria-label="Volume"></label>
+    <label>Speed <select id="spd" aria-label="Playback speed"><option value="1">1x</option><option value="0.5">0.5x</option><option value="0.25">0.25x</option></select></label>
+    <div class="seg" id="face" role="group" aria-label="Wordmark face"><!--@FACES@--></div>
+    <label><input type="checkbox" id="rm"> Simulate reduced motion</label>
+    <button class="btn" id="all" type="button">Replay all, silent</button>
+    <span class="note" id="note">Sound is synthesised in your browser. Press Replay on a card to hear it. Muted below 1x speed.</span>
+  </div>
+</header>
+<main>
+  <section><h2 class="sec">Logo mark</h2><div class="grid"><!--@MARKS@--></div></section>
+  <section><h2 class="sec">Lockup</h2><div class="grid"><!--@LOCKUPS@--></div></section>
+</main>
+<script>
+const SCHED=/*@SCHED@*/{};const CYCLE=/*@CYCLE@*/{};const LOOPS=/*@LOOPS@*/{};
+/* ---------- audio: every cue is synthesised, nothing is sampled ---------- */
+const Snd=(()=>{
+  let ctx=null,master=null,on=false,vol=.6;
+  const noiseCache=new WeakMap();
+  function noise(c){let b=noiseCache.get(c);if(!b){b=c.createBuffer(1,c.sampleRate*2,c.sampleRate);const d=b.getChannelData(0);let s=12345;for(let i=0;i<d.length;i++){s=(s*16807)%2147483647;d[i]=s/1073741823.5-1}noiseCache.set(c,b)}return b}
+  function chain(c,dest){const g=c.createGain();const comp=c.createDynamicsCompressor();comp.threshold.value=-18;comp.ratio.value=4;comp.attack.value=.003;comp.release.value=.15;g.connect(comp);comp.connect(dest);return g}
+  const env=(g,t,a,pk,d)=>{g.gain.setValueAtTime(.0001,t);g.gain.linearRampToValueAtTime(pk,t+a);g.gain.exponentialRampToValueAtTime(.0001,t+a+d)};
+  const osc=(c,type,f,t,dur)=>{const o=c.createOscillator();o.type=type;o.frequency.setValueAtTime(f,t);o.start(t);o.stop(t+dur);return o};
+  const nsrc=(c,t,dur)=>{const s=c.createBufferSource();s.buffer=noise(c);s.loop=true;s.start(t,(t*7.31)%1.5);s.stop(t+dur);return s};
+  const filt=(c,type,f,q)=>{const x=c.createBiquadFilter();x.type=type;x.frequency.value=f;if(q)x.Q.value=q;return x};
+  const CUES={
+    pop(c,out,t,o){const f=o.f||659.25,g=o.g||.5;const a=osc(c,'sine',f*.78,t,.6);a.frequency.exponentialRampToValueAtTime(f,t+.05);const b=osc(c,'triangle',f*2,t,.4);const ga=c.createGain(),gb=c.createGain();env(ga,t,.004,g,.34);env(gb,t,.004,g*.16,.14);const lp=filt(c,'lowpass',5000);a.connect(ga);b.connect(gb);ga.connect(lp);gb.connect(lp);lp.connect(out)},
+    pluck(c,out,t,o){const f=o.f||987.77,g=o.g||.3;const a=osc(c,'sine',f,t,1);const b=osc(c,'triangle',f*2,t,.6);const ga=c.createGain(),gb=c.createGain();env(ga,t,.004,g,.7);env(gb,t,.004,g*.12,.25);const lp=filt(c,'lowpass',6000);a.connect(ga);b.connect(gb);ga.connect(lp);gb.connect(lp);lp.connect(out)},
+    ping(c,out,t,o){const f=o.f||987.77,g=o.g||.2;[[0,1],[.19,.35]].forEach(([dt,k])=>{const a=osc(c,'sine',f,t+dt,1.6);const ga=c.createGain();env(ga,t+dt,.006,g*k,1.2);const lp=filt(c,'lowpass',6000);a.connect(ga);ga.connect(lp);lp.connect(out)})},
+    tick(c,out,t,o){const a=osc(c,'sine',o.f||1200,t,.06);const g=c.createGain();env(g,t,.002,o.g||.1,.035);a.connect(g);g.connect(out)},
+    sweep(c,out,t,o){const d=(o.d||900)/1000,g=o.g||.1,f0=o.f0||300,f1=o.f1||1400;const n=nsrc(c,t,d+.05);const bp=filt(c,'bandpass',f0,3.5);bp.frequency.setValueAtTime(f0,t);bp.frequency.exponentialRampToValueAtTime(f1,t+d);const gn=c.createGain();gn.gain.setValueAtTime(.0001,t);gn.gain.linearRampToValueAtTime(g*10,t+d*.45);gn.gain.exponentialRampToValueAtTime(.0001,t+d);n.connect(bp);bp.connect(gn);gn.connect(out);const a=osc(c,'sine',f0*.5,t,d+.05);a.frequency.exponentialRampToValueAtTime(f1*.5,t+d);const ga=c.createGain();ga.gain.setValueAtTime(.0001,t);ga.gain.linearRampToValueAtTime(g*.15,t+d*.45);ga.gain.exponentialRampToValueAtTime(.0001,t+d);a.connect(ga);ga.connect(out)},
+    thump(c,out,t,o){const g=o.g||.5,f=o.f||150;const a=osc(c,'sine',f,t,.3);a.frequency.exponentialRampToValueAtTime(f*.37,t+.09);const ga=c.createGain();env(ga,t,.002,g,.16);a.connect(ga);ga.connect(out);const n=nsrc(c,t,.05);const lp=filt(c,'lowpass',500);const gn=c.createGain();env(gn,t,.001,g*.4,.02);n.connect(lp);lp.connect(gn);gn.connect(out)},
+    rumble(c,out,t,o){const d=(o.d||600)/1000,g=o.g||.1;const n=nsrc(c,t,d+.05);const lp=filt(c,'lowpass',260,.7);const gn=c.createGain();gn.gain.setValueAtTime(.0001,t);gn.gain.linearRampToValueAtTime(g,t+d*.2);gn.gain.exponentialRampToValueAtTime(.0001,t+d);n.connect(lp);lp.connect(gn);gn.connect(out)},
+    knock(c,out,t,o){const g=o.g||.4;const n=nsrc(c,t,.05);const bp=filt(c,'bandpass',1400,5);const gn=c.createGain();env(gn,t,.001,g*.8,.022);n.connect(bp);bp.connect(gn);gn.connect(out);const a=osc(c,'sine',340,t,.15);a.frequency.exponentialRampToValueAtTime(210,t+.05);const ga=c.createGain();env(ga,t,.001,g*.5,.09);a.connect(ga);ga.connect(out)},
+    click(c,out,t,o){const g=o.g||.3;const n=nsrc(c,t,.04);const hp=filt(c,'highpass',2500);const gn=c.createGain();env(gn,t,.001,g,.012);n.connect(hp);hp.connect(gn);gn.connect(out);const a=osc(c,'sine',3200,t,.03);const ga=c.createGain();env(ga,t,.001,g*.2,.008);a.connect(ga);ga.connect(out)},
+    air(c,out,t,o){const d=(o.d||600)/1000,g=o.g||.04;const n=nsrc(c,t,d+.05);const hp=filt(c,'highpass',3500);const lp=filt(c,'lowpass',9000);const gn=c.createGain();gn.gain.setValueAtTime(.0001,t);gn.gain.linearRampToValueAtTime(g*.6,t+d*.5);gn.gain.exponentialRampToValueAtTime(.0001,t+d);n.connect(hp);hp.connect(lp);lp.connect(gn);gn.connect(out)}
+  };
+  function schedule(c,out,t0,sched){sched.forEach(o=>CUES[o.c](c,out,t0+o.t/1000,o))}
+  function wavB64(buf){const d=buf.getChannelData(0),n=d.length,v=new DataView(new ArrayBuffer(44+n*2));const w=(o,s)=>{for(let i=0;i<s.length;i++)v.setUint8(o+i,s.charCodeAt(i))};w(0,'RIFF');v.setUint32(4,36+n*2,true);w(8,'WAVEfmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);v.setUint32(24,buf.sampleRate,true);v.setUint32(28,buf.sampleRate*2,true);v.setUint16(32,2,true);v.setUint16(34,16,true);w(36,'data');v.setUint32(40,n*2,true);for(let i=0;i<n;i++){v.setInt16(44+i*2,Math.max(-1,Math.min(1,d[i]))*32767,true)}const u=new Uint8Array(v.buffer);let s='';for(let i=0;i<u.length;i+=8192)s+=String.fromCharCode.apply(null,u.subarray(i,i+8192));return btoa(s)}
+  return{
+    get on(){return on},
+    async enable(){if(!ctx){ctx=new (window.AudioContext||window.webkitAudioContext)();master=chain(ctx,ctx.destination);master.gain.value=vol*1.1}await ctx.resume();on=true},
+    disable(){on=false},
+    setVol(v){vol=v;if(master)master.gain.value=v*.55},
+    play(sched){if(!on||!ctx)return;schedule(ctx,master,ctx.currentTime+.06,sched)},
+    async renderWav(id,tailMs){const sr=44100,dur=(CYCLE[id]+(tailMs||600))/1000;const c=new OfflineAudioContext(1,Math.ceil(sr*dur),sr);const m=chain(c,c.destination);m.gain.value=1.1;schedule(c,m,.03,SCHED[id]);return wavB64(await c.startRendering())}
+  };
+})();
+window.renderWav=(id,t)=>Snd.renderWav(id,t);
+/* ---------- page ---------- */
+let rate=1;
+const applyRate=el=>el.getAnimations({subtree:true}).forEach(a=>a.playbackRate=rate);
+function restart(card){card.querySelectorAll('svg').forEach(s=>{const n=s.cloneNode(true);s.replaceWith(n);applyRate(n)})}
+function replay(card,withSound){restart(card);if(withSound&&rate===1)Snd.play(SCHED[card.dataset.id])}
+const q=new URLSearchParams(location.search);
+if(q.get('stage')){
+  const card=document.querySelector(`[data-id="${q.get('stage')}"]`),th=q.get('theme')||'dark',face=q.get('face')||'instrument';
+  const tile=card.querySelectorAll('.tile')[th==='dark'?0:1];const svg=(tile.querySelector('.f-'+face)||tile.querySelector('svg')).cloneNode(true);
+  document.body.innerHTML='';document.body.className='stage '+th;document.body.appendChild(svg);window.__stage=true;
+}else{
+  document.querySelectorAll('.card').forEach(card=>card.querySelector('.replay').addEventListener('click',()=>replay(card,true)));
+  const snd=document.getElementById('snd');
+  snd.addEventListener('click',async()=>{if(Snd.on){Snd.disable();snd.textContent='Enable sound';snd.setAttribute('aria-pressed','false')}else{await Snd.enable();snd.textContent='Sound on';snd.setAttribute('aria-pressed','true')}});
+  document.getElementById('vol').addEventListener('input',e=>Snd.setVol(+e.target.value));
+  document.getElementById('spd').addEventListener('change',e=>{rate=+e.target.value;document.querySelectorAll('.card').forEach(applyRate)});
+  document.getElementById('rm').addEventListener('change',e=>document.body.classList.toggle('rm',e.target.checked));
+  document.getElementById('all').addEventListener('click',()=>document.querySelectorAll('.card').forEach(c=>replay(c,false)));
+  document.querySelectorAll('#face button').forEach(b=>b.addEventListener('click',()=>{document.body.dataset.face=b.dataset.face;document.querySelectorAll('#face button').forEach(x=>x.setAttribute('aria-pressed',String(x===b)))}));
+}
+</script>
+</body>
+</html>

@@ -1,12 +1,12 @@
 <div align="center">
 
-<img src="docs/assets/banner.png" alt="OpenGateway, the AI gateway that doesn't paywall the features" width="100%">
+<img src="docs/assets/banner.gif" alt="OpenGateway, the AI gateway that doesn't paywall the features" width="100%">
 
 **The fastest way to add SSO, audit logs, guardrails, and routing to any AI app.**
 
 OpenAI-compatible. Every feature free. MIT, forever.
 
-[Docs](docs/architecture.md) · [Quick Start](#quick-start) · [Drop-in Replacement](#drop-in-replacement) · [Providers](#providers) · [ADRs](adr/)
+[Docs](docs/architecture.md) · [Quick Start](#quick-start) · [Drop-in Replacement](#drop-in-replacement) · [Providers](#providers) · [Configuration](docs/configuration.md) · [ADRs](adr/)
 
 |         |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -32,9 +32,9 @@ Every AI gateway on the market takes the same bet: **lock the good stuff behind 
 
 LiteLLM charges for SSO and audit logs. Bifrost gates guardrails and clustering behind enterprise. **OpenGateway gives you everything in the OSS build**, funded by managed hosting and support, the same model Red Hat used with Backstage.
 
-> "Bifrost is Go. OpenGateway is Python/Mojo, easier to customise." internal positioning line.
+> "Bifrost is Go. OpenGateway is Python/Mojo, easier to customise."
 
-And unlike every other Python AI gateway, OpenGateway ships a **second server on Mojo + [flare](https://github.com/ehsanmok/flare)** for when you want a single static binary at the edge.
+And unlike every other Python AI gateway, OpenGateway ships a **second server on Mojo + [flare](https://github.com/ehsanmok/flare)**: one static binary for the edge.
 
 ---
 
@@ -65,7 +65,7 @@ $ opengateway
 INFO:     Uvicorn running on http://0.0.0.0:8080
 ```
 
-Both servers implement the same `POST /v1/chat/completions` endpoint and share the same provider adapters. Production ships the Mojo binary; FastAPI stays in-tree as the Python-only dev path. See `docs/architecture.md` for the full story.
+Both servers implement the same `POST /v1/chat/completions` endpoint and share the same provider adapters. Production ships the Mojo binary; FastAPI stays in-tree as the Python-only dev path. See [docs/architecture.md](docs/architecture.md) for the full story.
 
 ### Hit it
 
@@ -83,54 +83,7 @@ $ curl -s -X POST http://localhost:8080/v1/chat/completions \
 "Hello, Hola, Bonjour, Hallo, こんにちは"
 ```
 
----
-
-### Demo without an API key (mock upstream)
-
-No OpenAI key? The repo ships a mock SSE upstream so the full path
-(gateway → provider → streaming client) runs offline:
-
-```bash
-$ python tests/mock_upstream.py 9100 &
-mock upstream on 127.0.0.1:9100
-```
-
-Then set these in `.env` instead of a real key:
-
-```bash
-OPENAI_API_KEY=sk-mock-local
-OPENAI_BASE_URL=http://127.0.0.1:9100/v1
-```
-
-Restart the gateway and hit `/v1/chat/completions` as above — the mock
-replies `"Hello, streaming world!"`, or four SSE frames when
-`"stream": true`. Works with both servers.
-
----
-
-### TLS termination (in-binary)
-
-Set `TLS_CERT_FILE` and `TLS_KEY_FILE` (PEM-encoded) to terminate TLS
-inside the Mojo binary via flare's reactor-side TLS state machine —
-no sidecar, no edge LB. When unset, the listener accepts cleartext on
-the loopback address so an LB can terminate TLS in front. The
-`TLS_PORT` env var is unused — the listener binds on `PORT`.
-
-```bash
-$ TLS_CERT_FILE=./server.pem TLS_KEY_FILE=./server.key ./og-tls3
-opengateway (mojo): HTTPS on 127.0.0.1:8080 with 1 workers
-
-$ curl --cacert ./server.pem --resolve localhost:8080:127.0.0.1 \
-    https://localhost:8080/health
-{"status":"ok"}
-```
-
-> **Self-signed cert gotcha.** The in-binary TLS path requires the cert
-> subject to match the hostname curl uses. Generate the cert with
-> `CN=localhost` (not `CN=127.0.0.1`) and use `--resolve
-> localhost:8080:127.0.0.1` so the cert verifies. Hitting
-> `https://127.0.0.1:8080/health` directly will exit code 60 silently
-> under `curl -s` and look like a hang.
+No API key? Run the bundled mock upstream and exercise the full path offline ([docs/configuration.md](docs/configuration.md)).
 
 ---
 
@@ -160,11 +113,10 @@ Every OpenAI SDK works without modification. Anthropic, Google GenAI, LiteLLM, a
 
 ### Core Infrastructure
 
-- **OpenAI-compatible endpoint.** Same request shape, same response shape, same error format. Drop-in for every OpenAI client SDK.
+- **OpenAI-compatible endpoint.** Same request shape, same response shape, same error format.
 - **Multi-provider support.** OpenAI, Anthropic, AWS Bedrock, Google Vertex, Azure, and more, behind a single API.
 - **Automatic fallbacks.** Seamless failover between providers and models with zero downtime.
-- **Load balancing.** Intelligent request distribution across multiple API keys and providers.
-- **Streaming (SSE).** Server-sent events work out of the box, same wire format as OpenAI.
+- **Streaming (SSE).** Server-sent events out of the box, same wire format as OpenAI.
 
 ### Governance and Security
 
@@ -172,22 +124,14 @@ Every OpenAI SDK works without modification. Anthropic, Google GenAI, LiteLLM, a
 - **Per-key budgets and rate limits.** Token-bucket rate limiting and USD budget caps per virtual key.
 - **Audit logs.** Structured events for every request, queryable by key, model, and time range.
 - **SSO / SAML.** OIDC and SAML authentication for admin interfaces and key management.
-- **RBAC.** Team, organisation, and admin role hierarchy.
-- **IP ACLs.** Restrict access to specific source IPs or CIDR ranges.
-- **Custom branding.** Logo, colours, and per-tenant theming on the admin UI.
+- **RBAC, IP ACLs, custom branding.** Team hierarchies, source-IP restrictions, per-tenant theming.
 
-### Observability
+### Observability and Developer Experience
 
 - **Native Prometheus metrics.** Request counts, latency histograms, error rates, token usage.
-- **Distributed tracing.** OpenTelemetry-compatible export to Jaeger, Tempo, or Honeycomb.
 - **Structured request logging.** JSON logs with key, model, latency, tokens, and cost.
-
-### Developer Experience
-
 - **Zero-config startup.** Single command, single binary, no database required to start.
-- **Single static binary** (Mojo path) for serverless, edge, and Lambda deployments.
-- **Conventional commits** drive automated versioning and changelog generation via release-please.
-- **Standard formats everywhere.** OpenAPI for the spec, JSON for the config, dotenv for the env.
+- **Standard formats everywhere.** OpenAPI for the spec, JSON for config, dotenv for env.
 
 ---
 
@@ -206,185 +150,22 @@ Every OpenAI SDK works without modification. Anthropic, Google GenAI, LiteLLM, a
 
 ---
 
-## Integrations
-
-OpenGateway is a drop-in replacement for any OpenAI-compatible client. Tested with:
-
-| SDK | Status | Notes |
-|---|---|---|
-| [openai-python](https://github.com/openai/openai-python) | works | Set `base_url` to the gateway URL |
-| [openai-node](https://github.com/openai/openai-node) | works | Set `baseURL` to the gateway URL |
-| [anthropic-sdk-python](https://github.com/anthropics/anthropic-sdk-python) | works | Via provider router |
-| [Google GenAI](https://github.com/google-gemini/generative-ai-python) | works | Via provider router |
-| [LiteLLM SDK](https://github.com/BerriAI/litellm) | works | Nested routing for migration |
-| [LangChain](https://github.com/langchain-ai/langchain) | works | Use OpenAI-compatible endpoint |
-
----
-
-## Routing, Cost Caps, and Fallbacks
-
-Three layered controls for traffic shape. All opt-in: with no `ROUTES_JSON` set, the bridge behaves identically to a pre-routing-table install.
-
-### Routing table (`ROUTES_JSON`)
-
-Pin a model to a primary provider with optional fallback, plus pricing for the cost cap:
-
-```bash
-ROUTES_JSON='[
-  {
-    "model": "gpt-4o-mini",
-    "primary": "openai",
-    "input_price_per_1k": 0.00015,
-    "output_price_per_1k": 0.0006,
-    "max_output_tokens": 16384
-  },
-  {
-    "model": "gpt-4o",
-    "primary": "openai",
-    "fallback": "anthropic",
-    "input_price_per_1k": 0.0025,
-    "output_price_per_1k": 0.01,
-    "max_output_tokens": 4096
-  }
-]'
-```
-
-- `model`: exact match against the request body.
-- `primary` / `fallback`: short provider name (`openai`, `anthropic`) or full module path (`opengateway.providers.openai`).
-- Pricing fields are USD per 1k tokens. They drive the per-key `max_cost_usd` cap (below); if unset, the cap is not enforced.
-- `max_output_tokens`: ceiling used when the request omits `max_tokens`. Caps the worst-case completion cost.
-
-When `ROUTES_JSON` is unset, the bridge falls through to the legacy prefix-based routing (`gpt-*` → OpenAI, `claude-*` → Anthropic, `bedrock/*` → Bedrock). Drift between the Python bridge and the Mojo router is guarded by `tests/test_mojo_bridge.py::test_routing_rules_match_mojo_router`.
-
-### Per-key USD cost cap
-
-Set `max_cost_usd` on a virtual key (column added to the `virtual_keys` table). The bridge estimates the upstream cost of each request before calling the provider:
-
-```
-estimate = prompt_chars / 4 × input_price + max_tokens × output_price
-```
-
-When `budget_used + estimate > max_cost_usd`, the request is rejected with `429 rate_limit_error` before any upstream call. Over-estimation is the right bias for a cap. The cap is independent from the token-denominated `max_budget` field (ADR-003 §166) — set both, set either, set neither.
-
-### Provider fallback
-
-When the primary provider returns a retryable failure (`5xx`, `429`, connection / timeout), the bridge retries the request against `fallback` once. Non-retryable failures (4xx other than 429) surface immediately — the request is broken, not the provider.
-
-Streaming falls back only before the first frame is queued. Mid-stream errors log a warning and emit the canonical `[DONE]` terminator; the client sees a clean stream end, not a silent provider swap mid-flight.
-
----
-
-## Configuration
-
-Everything is environment variables or `.env`:
-
-| Variable | Default | Description |
-|---|---|---|
-| `ROOT_KEY` | `sk-root-change-me` | Admin key with full access. **Replace before deploying.** |
-| `OPENAI_API_KEY` | _(unset)_ | Upstream key for `gpt-*` and `openai/*`. |
-| `ANTHROPIC_API_KEY` | _(unset)_ | Upstream key for `claude-*` and `anthropic/*`. |
-| `ROUTES_JSON` | _(unset)_ | JSON array of `RouteRule` objects — see [Routing, Cost Caps, and Fallbacks](#routing-cost-caps-and-fallbacks). |
-| `DATABASE_URL` | `postgresql://...` | Tenants, keys, audit logs. |
-| `REDIS_URL` | `redis://...` | Rate limits and short-lived caches. |
-| `HOST` | `0.0.0.0` | Bind address. |
-| `PORT` | `8080` | Bind port. |
-| `WORKERS` | `1` | uvicorn workers (Python only). |
-| `DEBUG` | `false` | Reload on file changes. |
-| `LOG_LEVEL` | `INFO` | `DEBUG` / `INFO` / `WARNING` / `ERROR`. |
-| `REQUIRE_AUTH` | `true` | Reject requests without a valid `Authorization` header. |
-
-API keys follow [`sk-og-{token}`](adr/001-api-key-format.md), the same prefix shape as OpenAI, branded to OpenGateway.
-
----
-
 ## Architecture
 
-```
-   OpenAI-compatible client
-            │
-            ▼
-   ┌────────────────────┐
-   │  HTTP API surface  │   ← FastAPI (Python, default)
-   │                    │     OR flare  (Mojo,    opt-in)
-   └─────────┬──────────┘
-             │
-             ▼
-   ┌────────────────────┐
-   │  PythonObject      │   ← only in the Mojo path
-   │  bridge            │
-   └─────────┬──────────┘
-             │
-            ═╪═  single sync function call, returns envelope
-            ═╪═
-             │
-             ▼
-   ┌────────────────────┐
-   │  Python business   │   ← auth, validation, provider dispatch
-   │  logic             │
-   └─────────┬──────────┘
-             │
-             ▼
-   ┌────────────────────┐
-   │  Provider adapters │   ← opengateway/providers/{openai,anthropic,bedrock,...}.py
-   └─────────┬──────────┘
-             │
-             ▼
-   ┌────────────────────┐
-   │  Upstream LLM API  │   ← OpenAI / Anthropic / Bedrock / ...
-   └────────────────────┘
+```mermaid
+flowchart TD
+    client["OpenAI-compatible client"] --> api["HTTP API surface<br/>flare on Mojo, default<br/>or FastAPI, Python, opt-in"]
+    api --> bridge["PythonObject bridge<br/>only in the Mojo path"]
+    bridge -->|"single sync function call<br/>returns envelope dict"| logic["Python business logic<br/>auth, validation, provider dispatch"]
+    logic --> adapters["Provider adapters<br/>opengateway/providers/{openai,anthropic,bedrock,...}.py"]
+    adapters --> upstream["Upstream LLM API<br/>OpenAI / Anthropic / Bedrock / ..."]
 ```
 
-**Mojo on flare** is the default. Single static binary, sub-50 ms cold start, ~30 MB image, no `pip install` in your container. Hosts the entire HTTP surface — routing, middleware, SSE, request-id propagation, structured logging, panic safety, graceful drain — natively.
-
-**FastAPI** stays in-tree as the Python-only dev path (`uv run opengateway`). Use it for local iteration on the bridge or when you need a debugger attached to the Python stack. It is no longer the production deployment target.
+**Mojo on flare** is the default. Single static binary, sub-50 ms cold start, ~30 MB image, no `pip install` in your container. It hosts the entire HTTP surface natively: routing, middleware, SSE, request-id propagation, structured logging, panic safety, graceful drain. **FastAPI** stays in-tree as the Python-only dev path for local iteration on the bridge or when you need a debugger attached to the Python stack.
 
 Both servers share the same provider adapters, the same auth, the same config. The Mojo to PythonObject boundary is one synchronous function call (`bridge.handle_chat`) that returns an envelope dict so the Mojo handler never catches Python exceptions.
 
 Full layout in [docs/architecture.md](docs/architecture.md); the decision to make Mojo the default lives in [ADR-003](adr/003-mojo-default.md); the original dual-server rationale is in [ADR-002](adr/002-mojo-api-surface.md).
-
----
-
-## Repository Structure
-
-```
-opengateway/
-├── opengateway/
-│   ├── main.py              # FastAPI server (opt-in dev path)
-│   ├── auth.py              # Virtual key + root key auth
-│   ├── config.py            # Settings via pydantic-settings (RouteRule, ROUTES_JSON)
-│   ├── keys.py              # API key generator (sk-og-{token})
-│   ├── router.py            # Model-to-provider routing (Python)
-│   ├── providers/           # Provider adapters (called by the bridge)
-│   │   ├── base.py
-│   │   ├── openai.py
-│   │   └── anthropic.py     # stub — falls back from OpenAI when configured
-│   ├── mojo/                # Mojo server on flare — default deployment
-│   │   ├── main.mojo        # flare HTTP server + middleware stack
-│   │   ├── router.mojo      # Model -> provider module routing
-│   │   ├── test_router.mojo
-│   │   └── __init__.mojo
-│   └── mojo_bridge/         # Python side of the Mojo bridge
-│       ├── auth.py
-│       ├── chat.py
-│       ├── stream.py
-│       ├── db.py            # Postgres virtual key store
-│       ├── ratelimit.py     # Redis sliding-window rate limiter
-│       └── routing.py       # ROUTES_JSON resolution + fallback orchestration
-├── tests/
-│   ├── test_proxy.py            # FastAPI server tests (still in-tree)
-│   ├── test_mojo_bridge.py      # Bridge tests + router drift guard
-│   ├── test_cost_cap.py         # per-key max_cost_usd enforcement
-│   └── test_provider_fallback.py # retryable-failure fallback
-├── docs/                    # Documentation
-│   ├── architecture.md
-│   ├── release-process.md
-│   └── assets/              # Banner image and other assets
-├── adr/                     # Architecture Decision Records
-├── pyproject.toml           # Python package config
-├── pixi.toml                # Mojo environment config
-├── Dockerfile               # Container build
-└── docker-compose.yml       # Local dev stack (Postgres + Redis + gateway)
-```
 
 ---
 
@@ -396,44 +177,8 @@ A few principles we hold ourselves to. They're non-negotiable.
 2. **OpenAI-compatible is the API contract.** Not "compatible-ish". Not "subset". The same request shape, the same response shape, the same error format.
 3. **Boring tech where it matters.** FastAPI, Postgres, Redis, Pydantic. We don't get bonus points for picking weird.
 4. **New tech where it pays off.** Mojo for the binary-deploy path. Conventional commits for release automation. Standard formats everywhere else.
-5. **Tests in CI, not in promises.** 56 Python tests today, more every week. No `// TODO: test this later` in main.
+5. **Tests in CI, not in promises.** No `// TODO: test this later` in main.
 6. **The README is a contract.** If it doesn't run as written, the docs are wrong, not the code.
-
----
-
-## Roadmap
-
-Shipped today:
-
-- [x] OpenAI-compatible `/v1/chat/completions`
-- [x] Virtual keys with model allow-lists
-- [x] Per-key token budgets (`max_budget`) and USD cost caps (`max_cost_usd`)
-- [x] Routing table with primary + fallback providers (`ROUTES_JSON`)
-- [x] Single-hop provider fallback on retryable failures
-- [x] OpenAI provider adapter
-- [x] Dual server: FastAPI + Mojo on flare
-- [x] Streaming SSE in the Mojo server
-- [x] Prometheus metrics endpoint at `/metrics`
-- [x] Per-key Redis-backed rate limiting (sliding window)
-- [x] PostgreSQL-backed virtual keys (in-memory fallback when `DATABASE_URL` unset)
-- [x] release-please to PyPI publishing (calver `YYYY.M.PATCH`)
-- [x] In-binary TLS termination via flare's reactor (`TLS_CERT_FILE`, `TLS_KEY_FILE`)
-- [x] Drop-in replacement for openai-python, openai-node, and Anthropic SDKs
-
-Next up:
-
-- [ ] **Anthropic provider** adapter (currently a stub; routed via `fallback: anthropic`)
-- [ ] **Bedrock pass-through** adapter
-- [ ] **Guardrails**: PII detection, prompt injection, content moderation
-- [ ] **Audit log**: structured events, queryable
-- [ ] **SSO**: OIDC + SAML
-- [ ] **Adaptive routing**: score-based provider selection
-- [ ] **HTTP/3** over QUIC (blocked on upstream flare reactor integration)
-
-Long term:
-
-- [ ] Managed SaaS, the Phase 3 from the strategy note
-- [ ] Enterprise support contracts, the Phase 4 from the strategy note
 
 ---
 
@@ -442,8 +187,10 @@ Long term:
 | Doc | What it covers |
 |---|---|
 | [docs/architecture.md](docs/architecture.md) | Runtime layout, dual-server design, Mojo to Python boundary |
+| [docs/configuration.md](docs/configuration.md) | Env vars, routing table, cost caps, fallbacks, TLS, mock upstream |
 | [docs/release-process.md](docs/release-process.md) | release-please flow, conventional commits, PyPI trusted publisher |
 | [docs/mojo-python-ai-gateway.md](docs/mojo-python-ai-gateway.md) | Original design sketch (historical rationale) |
+| [docs/assets/logo-explore](docs/assets/logo-explore/) | Brand assets: mark and lockup SVGs, banner source, logo animation |
 | [adr/001-api-key-format.md](adr/001-api-key-format.md) | The `sk-og-{token}` key format |
 | [adr/002-mojo-api-surface.md](adr/002-mojo-api-surface.md) | Why Mojo for the API surface |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Dev setup, commit conventions, PR process |
@@ -455,27 +202,16 @@ Long term:
 We accept contributions under [DCO](./CONTRIBUTING.md). Commits follow [Conventional Commits](https://www.conventionalcommits.org/). `release-please` uses your commit messages to drive the version bump and the changelog, so prefix your commits with `feat:`, `fix:`, `docs:`, etc.
 
 ```bash
-# Set up
-git clone https://github.com/echohello-dev/opengateway.git
-cd opengateway
-uv pip install -e ".[dev]"
-
-# Run everything
 make test           # pytest
 make lint           # ruff + mypy
-make format         # ruff format
 make mojo-test      # Mojo router tests (requires pixi)
-
-# Open a PR with a clear title and description
 ```
 
 ---
 
 ## Project Status
 
-**Alpha (0.x).** The core proxy works end-to-end with the OpenAI provider. Anthropic and Bedrock adapters are routed but not yet implemented. Virtual keys and budgets are scaffolded. DB-backed persistence is the next milestone. Expect breaking changes before 1.0.
-
-Watch [releases](https://github.com/echohello-dev/opengateway/releases) for tagged versions, and check the [open issues](https://github.com/echohello-dev/opengateway/issues) for the current roadmap.
+OpenGateway is alpha (0.x). The core proxy works end-to-end with the OpenAI provider; Anthropic and Bedrock adapters are routed but not yet implemented, and expect breaking changes before 1.0. Watch [releases](https://github.com/echohello-dev/opengateway/releases) for tagged versions, and check the [open issues](https://github.com/echohello-dev/opengateway/issues) for the current picture.
 
 ---
 
